@@ -1,0 +1,10 @@
+pycodestyle >= 2.5.0
+pylint == 2.4
+docker >= 4.1.0
+flask >= 1.1.0
+pyroute2 >= 0.5.7
+googleapis-common-protos
+grpcio-status
+grpcio-tools
+ipython
+toml
