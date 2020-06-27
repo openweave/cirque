@@ -52,18 +52,18 @@ For WiFi radio simulation, Cirque utilizes the kernel module `mac80211_hwsim` to
 Imagine one virtual home with multiple WiFi stations and WiFi router, WiFi stations needs to get IP address and chat with internet via WiFi router. Both WiFi router and WiFi station can be emulated inside Docker.
 
 Test app would like to simulate WiFi setup and IP address request between WiFi station and WiFi access point via Cirque Service. In details:
-- Test app instruct service to create Cirque virtual home
-- Test app instruct service to create several devices with WiFi capability under virtual home (3 devices), they are 2 WiFi stations and 1 WiFi Access point.
-- Test app instruct the process inside WiFi Stations Docker to achieve WiFi provisioning(scan + authentication+ associate + DHCP + ping)
-- Test app instruct service to destroy Cirque virtual home and devices under virtual home.
+- Test app instructs service to create Cirque virtual home
+- Test app instructs service to create several devices with WiFi capability under virtual home (3 devices), they are 2 WiFi stations and 1 WiFi Access point.
+- Test app instructs the process inside WiFi Stations Docker to achieve WiFi provisioning(scan + authentication+ associate + DHCP + ping)
+- Test app instructs service to destroy Cirque virtual home and devices under virtual home.
 
 ### Instruction
 Let’s do the Cirque test as below
 ```
-sudo sh run_integration_tests.sh
+sudo sh run_tests.sh
 ```
 Note:
-It basically do as below
+It basically covers the below
 Build WiFi access point and WiFi station Docker images
 ```
 sh dependency_modules.sh

@@ -5,6 +5,12 @@
 Cirque simulates complex network topologies based upon docker nodes. On a single Linux machine, it can create multiple nodes with network stacks that are independent from each other. Some nodes may be connected to simulated Thread networks, others may connect to simulated BLE or WiFi. Cirque provides a service (gRPC or Flask REST) to create, destroy and manage multiple home environments with multiple virtual devices and radio capabilities between these devices.
 
 ## Installation:
+### Prerequisites
+```
+sudo apt-get install bazel socat psmisc tigervnc-standalone-server tigervnc-viewer python3-pip python3-venv python3-setuptools
+sudo pip3 install pycodestyle==2.5.0
+```
+### Make
 
 ```
 make install
@@ -13,27 +19,22 @@ make install
 Note: You can consider running Cirque within a `virtualenv`
 
 ```
-python3 -m venv venv-test
-source venv-test/bin/activate
-```
-
-## Unit Test:
-
-```
-sudo sh run_unit_tests.sh
-```
-
-## Integration Test:
-
-It runs `test_flask_virtual_home.py` and `test_grpc_virtual_home.py`
-```
-sudo sh run_integration_tests.sh
+python3 -m venv venv
+source venv/bin/activate
 ```
 
 ## Uninstallation:
 ```
 make uninstall
 ```
+
+##Test:
+It runs unit tests and integration test: `test_flask_virtual_home.py` and `test_grpc_virtual_home.py`
+
+```
+sudo sh run_tests.sh
+```
+
 
 # Directory Structure
 
@@ -55,7 +56,6 @@ The Cirque repository is structured as follows:
 | `dependency_modules.sh` | Convenience script to prepare test docker nodes and radio emulator.|
 | `LICENSE` | Cirque license file (Apache 2.0). |
 | `requirements.txt` | Python pip requirement file. |
-| `run_unit_test.sh ` | Cirque unit test script.|
 | `utils` | Cirque Build utilities. |
 | `WORKSPACE` | Bazel workspace. |
 | `BUILD` | Bazel Build file.|
@@ -63,5 +63,5 @@ The Cirque repository is structured as follows:
 | `examples/` | Cirque integration examples. |
 | `setup.py` | Build script for setuptools. |
 | `README.md` | This file. |
-| `run_integration_tests.sh` | Cirque integration example test script. |
+| `run_tests.sh` | Cirque unit and integration test script. |
 | `version` | Release version tag. |
