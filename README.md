@@ -28,8 +28,8 @@ source venv/bin/activate
 make uninstall
 ```
 
-##Test:
-It runs unit tests and integration test: `test_flask_virtual_home.py` and `test_grpc_virtual_home.py`
+## Test:
+The below runs unit tests and integration tests including `test_flask_virtual_home.py` and `test_grpc_virtual_home.py`
 
 ```
 sudo sh run_tests.sh
