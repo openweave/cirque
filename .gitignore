@@ -13,4 +13,3 @@ venv*
 build
 dist
 cirque.egg-info
-openthread

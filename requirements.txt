@@ -2,6 +2,7 @@ pycodestyle >= 2.5.0
 pylint == 2.4
 docker >= 4.1.0
 flask >= 1.1.0
+six == 1.12
 pyroute2 >= 0.5.7
 googleapis-common-protos
 grpcio-status
