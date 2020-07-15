@@ -23,6 +23,7 @@ py_library(
         "cirquelog.py",
         "exceptions.py",
         "utils.py",
+        "cirqueprompt.py",
     ],
     visibility=["//visibility:public"],
 )
@@ -33,5 +34,6 @@ py_style_test(
         "cirquelog.py",
         "exceptions.py",
         "utils.py",
+        "cirqueprompt.py",
     ],
 )

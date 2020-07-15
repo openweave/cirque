@@ -45,6 +45,24 @@ For WiFi radio simulation, Cirque utilizes the kernel module `mac80211_hwsim` to
 - two nodes created above each encapsulate a WiFi access point.  This is accomplished via a specialized container exporting an AP function using `hostapd`. Each of those nodes exports a programmatically assigned SSID and PSK, and, when appropriate, exports other functions provided by either a bare access point (Ethernet bridging) or a more complete home router (WAN connectivity, DHCP, NAT).
 - three remaining nodes act as WiFi stations.  When they scan the available WiFi networks, they will discover the two SSIDs we've created above.  As these three nodes are being provisioned, they can use the standard WiFi interactions to join a particular network and be provisioned with the correct networking configuration.
 
+### Command Line Interface
+
+Cirque also provides a CLI interface that provides developers an alternative way of accessing the cirque functionalities without spinning up either a grpc or flask services. This would dramatically reduce the setup time for developers who would like to develop features or leverage cirque functionalities on some other projects. Following are the commands that are supported by cirque cli
+
+- help: prints out all the supported cli commands. Using help <command> to learn morn detail of a specific command.
+- close_device: close a cirque device
+- create_home: create a cirque home
+- device_state: prints out device information of the device, such as device type, name, ip address..etc.
+- home_devices: prints out all the device under specified cirque home id.
+- run_exec: the feature that allows developer to run certain command on a device.
+- create_device: create a cirque deivce.
+- destroy_home: tear down a cirque home.
+- exit: tear down all the remaining homes and closes devices under these homes then leave cirque cli interface.
+- history: prints out historical commands that developer has used.
+- homes: prints out all the created homes in a list.
+- version: cirque version
+
+
 ## CASE Study
 
 ### Scenario
