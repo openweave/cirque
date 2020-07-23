@@ -51,7 +51,7 @@ function build_wifiap_docker_image() {
 function build_generic_node_docker_image() {
   pushd .
   cd "cirque/resources"
-  if [[ "${IMAGES}" != *mac80211_ap_image* ]]; then
+  if [[ "${IMAGES}" != *generic_node_image* ]]; then
     docker build -t generic_node_image  -f Dockerfile.generic_node .
   fi
   popd
