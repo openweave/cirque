@@ -312,7 +312,7 @@ class CirquePrompt(cmd2.Cmd):
         ret = homes[args.home_id].execute_device_cmd(args.command,
                                                      args.device_id,
                                                      args.stream)
-        print("command result:\n{}".format(ret))
+        print("command result:\n{}".format(ret.output.decode('utf-8')))
 
     def help_version(self):
         print(
