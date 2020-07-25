@@ -3,6 +3,7 @@ docker >= 4.1.0
 flask >= 1.1.0
 googleapis-common-protos
 grpcio-tools
+grpcio-status == 1.30.0
 ipython
 pycodestyle >= 2.5.0
 pylint == 2.4
