@@ -26,7 +26,7 @@ jobs:
     - name: Cirque Presubmit
       run: |
         sudo apt-get update
-        sudo apt-get install bazel socat psmisc tigervnc-standalone-server tigervnc-viewer python3-pip python3-venv python3-setuptools
+        sudo apt-get install bazel socat psmisc tigervnc-standalone-server tigervnc-viewer python3-pip python3.7-venv python3-setuptools
         sudo pip3 install pycodestyle==2.5.0
         make pretty-check
         make install-develop
