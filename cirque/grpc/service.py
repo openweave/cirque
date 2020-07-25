@@ -219,6 +219,9 @@ class CirqueService(service_pb2_grpc.CirqueServiceServicer):
             if specification.WhichOneof('optional_interactive_capability'):
                 add_interactive_capability_to_config(
                     device_config, specification.interactive_capability)
+            if specification.WhichOneof('optional_lan_access_capability'):
+                add_lan_access_capability_to_config(
+                    device_config, specification.lan_access_capability)
             if specification.WhichOneof('optional_mount_capability'):
                 add_mount_capability_to_config(
                     device_config, specification.mount_capability)
