@@ -253,10 +253,10 @@ class CirqueService(service_pb2_grpc.CirqueServiceServicer):
 
         if ret.exit_code != 0:
             context.abort_with_status(rpc_status.to_status(
-                status_pb2.Status(code=code_pb2.ABORTED)))
-            return service_pb2.ExecuteDeviceCommandResponse(
-                output="failed to execute command: {}!".format(
-                    request.command))
+                status_pb2.Status(
+                    code=code_pb2.ABORTED,
+                    message=ret.output)))
+            return service_pb2.ExecuteDeviceCommandResponse()
 
         return service_pb2.ExecuteDeviceCommandResponse(
             output=ret.output)
