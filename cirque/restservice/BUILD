@@ -12,27 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-
-load("@rules_python//python:defs.bzl", "py_library", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
 load("@cirque_deps//:requirements.bzl", "requirement")
 load("//utils/pystyletest:pystyletest.bzl", "py_style_test")
 
 py_binary(
     name = "service",
-    srcs = [ ":service.py" ],
+    srcs = [":service.py"],
     deps = [
-        "//cirque/home",
         "//cirque/common",
+        "//cirque/home",
         requirement("flask"),
     ],
 )
 
 py_style_test(
     name = "lint",
-    srcs = [ ":service.py" ],
+    srcs = [":service.py"],
     deps = [
-        "//cirque/home",
         "//cirque/common",
+        "//cirque/home",
     ],
 )
