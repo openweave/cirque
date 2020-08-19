@@ -19,17 +19,20 @@ from setuptools.command.install import install
 import glob
 import pkg_resources
 
+ENABLE_GRPC = not os.environ.get('NO_GRPC', False)
 PACKAGE_PATH = os.path.realpath(os.path.dirname(__file__))
 SRC_PROTOS = os.path.join(PACKAGE_PATH, 'cirque/proto')
 VERSION_FILE = os.path.join(PACKAGE_PATH, 'version')
 
-with open('requirements.txt') as f:
+SETUP_REQUIRES = ('grpcio-tools',)
+REQUIREMENTS_TXT = 'requirements.txt'
+
+if not ENABLE_GRPC:
+    SETUP_REQUIRES = ()
+    REQUIREMENTS_TXT = 'requirements_nogrpc.txt'
+
+with open(REQUIREMENTS_TXT) as f:
     INSTALL_REQUIRES = f.read().splitlines()
-
-
-SETUP_REQUIRES = (
-    'grpcio-tools',
-)
 
 
 def version():
@@ -76,7 +79,7 @@ setuptools.setup(
     },
     include_package_data=True,
     data_files=[
-        ('', ['version', 'requirements.txt']),
+        ('', ['version', 'requirements.txt', 'requirements_nogrpc.txt']),
         ('cirque', glob.glob('cirque/proto/*.proto'))
     ],
     zip_safe=True,
@@ -100,4 +103,6 @@ setuptools.setup(
     license="Apache",
     url="https://github.com/openweave/cirque/",
 )
-compile_protos()
+
+if ENABLE_GRPC:
+    compile_protos()
