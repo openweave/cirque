@@ -16,6 +16,12 @@ sudo pip3 install pycodestyle==2.5.0
 make install
 ```
 
+To install cirque without grpc support, just passing NO_GRPC environment variable to make:
+
+```
+make NO_GRPC=1 install
+```
+
 Note: You can consider running Cirque within a `virtualenv`
 
 ```

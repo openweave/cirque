@@ -21,6 +21,7 @@ PYCODE_LINT_ARGS     ?= --max-line-length=79
 PYTHON             ?= python3
 PYTHON_VERSION     ?= $(shell $(PYTHON) -c "import sys; sys.stdout.write(sys.version[:3])")
 SUDO               ?= sudo
+NO_GRPC            ?=
 
 # The list of Debian packages on which Cirque depends which must be
 # installed before Cirque may be used.
@@ -67,16 +68,16 @@ check-prerequisites: $(check_TARGETS)
 
 install: check-prerequisites
 ifeq ($(CIRQUE_PATH),)
-	$(MAKE) install-system
+	$(MAKE) NO_GRPC=$(NO_GRPC) install-system
 else
-	$(MAKE) install-path
+	$(MAKE) NO_GRPC=$(NO_GRPC) install-path
 endif
 
 uninstall:
 ifeq ($(CIRQUE_PATH),)
-	$(MAKE) uninstall-system
+	$(MAKE) NO_GRPC=$(NO_GRPC) uninstall-system
 else
-	$(MAKE) uninstall-path
+	$(MAKE) NO_GRPC=$(NO_GRPC) uninstall-path
 endif
 
 # Install Cirque into Python's shared library in a developed version.
@@ -86,11 +87,11 @@ endif
 
 install-develop: check-prerequisites
 	# Installing Cirque for development
-	$(SUDO) $(PYTHON) setup.py develop
+	$(SUDO) NO_GRPC=$(NO_GRPC) $(PYTHON) setup.py develop
 
 uninstall-develop:
-	$(SUDO) $(PYTHON) setup.py develop --uninstall
-	$(MAKE) clean
+	$(SUDO) NO_GRPC=$(NO_GRPC) $(PYTHON) setup.py develop --uninstall
+	$(MAKE) NO_GRPC=$(NO_GRPC) clean
 
 # Install Cirque into a user's home directory (~/.local). This allows a user
 # to install Cirque without requiring root privilages. The installed Cirque
@@ -99,7 +100,7 @@ uninstall-develop:
 
 install-user: check-prerequisites
 	# Installing Cirque into user home directory
-	$(PYTHON) setup.py install --user
+	NO_GRPC=$(NO_GRPC) $(PYTHON) setup.py install --user
 	@echo
 	@echo "Cirque package installed into users ~/.local/lib/*"
 	@echo
@@ -113,7 +114,7 @@ uninstall-user:
 
 install-system: check-prerequisites
 	# Installing Cirque
-	$(SUDO) $(PYTHON) setup.py install
+	$(SUDO) NO_GRPC=$(NO_GRPC) $(PYTHON) setup.py install
 
 uninstall-system:
 	$(MAKE) clean
@@ -132,7 +133,7 @@ ifeq ($(CIRQUE_PATH),)
 endif
 	mkdir -p $(CIRQUE_PATH)/lib/python$(PYTHON_VERSION)/site-packages/; \
 	export PYTHONPATH="$(CIRQUE_PATH)/lib/python$(PYTHON_VERSION)/site-packages/" ;\
-	$(PYTHON) setup.py install --prefix=$(CIRQUE_PATH)
+	NO_GRPC=$(NO_GRPC) $(PYTHON) setup.py install --prefix=$(CIRQUE_PATH)
 	@echo
 	@echo "Using custom path for a Python package is unusual."
 	@echo "Remember to update PYTHONPATH for every environment that will use this package, thus run"
@@ -147,11 +148,11 @@ endif
 
 distribution-build: clean
 	# creates a built distribution
-	$(PYTHON) setup.py bdist
+	NO_GRPC=$(NO_GRPC) $(PYTHON) setup.py bdist
 
 distribution-source: clean
 	# creates a source distribution
-	$(PYTHON) setup.py sdist
+	NO_GRPC=$(NO_GRPC) $(PYTHON) setup.py sdist
 
 distribution: distribution-build distribution-source
 
