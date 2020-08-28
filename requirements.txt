@@ -4,9 +4,8 @@ flask >= 1.1.0
 googleapis-common-protos
 grpcio-tools
 grpcio-status == 1.30.0
-ipython
 pycodestyle >= 2.5.0
 pylint == 2.4
 pyroute2 >= 0.5.7
-six == 1.12
+six >= 1.12
 toml
