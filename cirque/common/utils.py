@@ -66,8 +66,12 @@ def netns_run(logger, command, namespace, stdin=None,
 
 
 def manipulate_iptable_src_dst_rule(logger, src, dst, action, add=True):
+    chain = 'DOCKER-USER'
     manipulate_action = '-I' if add else '-D'
-    cmd = ['iptables', manipulate_action, 'DOCKER-USER',
+    ret = host_run(logger, "iptables -L DOCKER-USER")
+    if b'No chain/target/match by that name' in ret.stderr:
+        chain = 'INPUT'
+    cmd = ['iptables', manipulate_action, chain,
            '-s', src,
            '-d', dst,
            '-j', action]
