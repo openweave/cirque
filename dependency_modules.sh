@@ -24,13 +24,14 @@ set -e
 SRC_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 OPEN_THREAD_DIR="${SRC_DIR}"/openthread
 IMAGES=`docker images --filter=reference='*:latest' | awk '{print $1}'`
+OPENTHREAD_VERSION=${OPENTHREAD_VERSION:-master}
 
 function install_openthread() {
   if [ ! -d "${OPEN_THREAD_DIR}" ]; then
-      wget https://github.com/openthread/openthread/archive/master.zip
-      unzip master.zip
-      rm master.zip
-      mv openthread-master openthread
+      wget "https://github.com/openthread/openthread/archive/${OPENTHREAD_VERSION}.zip" -O openthread.zip
+      unzip openthread.zip
+      rm openthread.zip
+      mv "openthread-${OPENTHREAD_VERSION}" openthread
   fi
   pushd .
   cd openthread
