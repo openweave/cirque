@@ -16,7 +16,7 @@
 # openthread/otbr_amd64_linux provides the basic openthread otbr docker setup and configuration from ubuntu base image
 # further, this docker file provides the basic setup and configuration for WiFi station device.
 
-FROM openthread/otbr:focal
+FROM openthread/otbr:latest
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update && \
