@@ -27,10 +27,10 @@ IMAGES=`docker images --filter=reference='*:latest' | awk '{print $1}'`
 
 function install_openthread() {
   if [ ! -d "${OPEN_THREAD_DIR}" ]; then
-      wget https://github.com/openthread/openthread/archive/master.zip
-      unzip master.zip
-      rm master.zip
-      mv openthread-master openthread
+      wget https://github.com/openthread/openthread/archive/0d14e854398cd9eced31666e48e6ab656e574074.zip
+      unzip 0d14e854398cd9eced31666e48e6ab656e574074.zip
+      rm 0d14e854398cd9eced31666e48e6ab656e574074.zip
+      mv openthread-0d14e854398cd9eced31666e48e6ab656e574074 openthread
   fi
   pushd .
   cd openthread
