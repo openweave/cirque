@@ -165,7 +165,8 @@ class CirqueHome:
             if 'xvnc_localhost' in device_config else True
         display_id = device_config['display_id'] \
             if 'display_id' in device_config else 0
-        return XvncCapability(localhost)
+        docker_display_id = device_config.get('docker_display_id')
+        return XvncCapability(localhost, display_id, docker_display_id)
 
     def __make_mount_capability(self, capability, device_config):
         mount_pairs = device_config['mount_pairs']
