@@ -31,7 +31,8 @@ from cirque.common.cirquelog import CirqueLog
 from cirque.common.utils import sleep_time
 from cirque.proto.capability_pb2 import (
     WeaveCapability, ThreadCapability, WiFiCapability, XvncCapability,
-    InteractiveCapability, LanAccessCapability, MountPair, MountCapability
+    InteractiveCapability, LanAccessCapability, MountPair, MountCapability,
+    TrafficControlCapability
 )
 
 

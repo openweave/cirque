@@ -31,6 +31,7 @@ Cirque provides a set of capabilities available to any node.  Capability typical
 - *LAN Access Capability*: grants access to containers inside the Docker network via restricting iptable rules.
 - *Interactive Capability*: enable/disable interactive shell for Docker node via toggle stdin_open
 - *Mount capability*: allows users to mount arbitrary path to Docker
+- *Traffic Control Capability*: make `tc` command available (adds `NET_ADMIN` caps to the device), also supports enable traffic control config on default interface (`eth0`) on start (requires `iproute2` package).
 
 ### Thread Simulation
 
@@ -44,6 +45,10 @@ For WiFi radio simulation, Cirque utilizes the kernel module `mac80211_hwsim` to
 - create, say, five nodes with WiFi capabilities.
 - two nodes created above each encapsulate a WiFi access point.  This is accomplished via a specialized container exporting an AP function using `hostapd`. Each of those nodes exports a programmatically assigned SSID and PSK, and, when appropriate, exports other functions provided by either a bare access point (Ethernet bridging) or a more complete home router (WAN connectivity, DHCP, NAT).
 - three remaining nodes act as WiFi stations.  When they scan the available WiFi networks, they will discover the two SSIDs we've created above.  As these three nodes are being provisioned, they can use the standard WiFi interactions to join a particular network and be provisioned with the correct networking configuration.
+
+### Traffic Control
+
+With *Traffic Control* capability enabled, and `iproute2` package installed in the docker image for device you can use `tc` command to simulate a bad network environment (high latency, packet loss, etc.). You can easily setup latency and packet loss rate on default interface `eth0` in the container by specify "latencyMs" (millisecond) and "loss" (percent) for Traffic Control capability.
 
 ### Command Line Interface
 

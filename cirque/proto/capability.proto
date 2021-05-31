@@ -51,3 +51,8 @@ message MountPair {
 message MountCapability {
   repeated MountPair mount_pairs = 1;
 }
+
+message TrafficControlCapability {
+  int32 latency_ms = 1;
+  int32 loss_rate = 2;
+}

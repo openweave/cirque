@@ -52,6 +52,10 @@ message DeviceSpecification {
   oneof optional_mount_capability {
     MountCapability mount_capability = 9;
   }
+
+  oneof optional_trafficcontrol_capability {
+    TrafficControlCapability trafficcontrol_capability = 10;
+  }
 }
 
 message DeviceDescription {
