@@ -32,6 +32,6 @@ jobs:
         sudo apt update && sudo apt install bazel
         sudo apt-get install socat psmisc tigervnc-standalone-server tigervnc-viewer python3-pip python3-venv python3-setuptools
         sudo pip3 install pycodestyle==2.5.0
-        sudo pip3 install pyroute2==0.6.2
+        sudo pip3 install protobuf==3.12.0
         make pretty-check
         make install-develop
