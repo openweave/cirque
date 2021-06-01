@@ -16,8 +16,13 @@
 from functools import reduce
 
 import docker
+import string
+import random
+import time
 from cirque.common.cirquelog import CirqueLog
 from cirque.common.utils import sleep_time
+
+CIRQUE_CONTAINER_PREFIX = "cirque_home_"
 
 
 class DockerNode:
@@ -54,11 +59,12 @@ class DockerNode:
         capability_run_args = [capability.get_docker_run_args(
             self) for capability in self.capabilities]
         capability_run_args = reduce(
-            merge_capapblity_arg, capability_run_args, {})
+            merge_capapblity_arg, capability_run_args,
+            {'cap_add': ['SYS_TIME']})
+        random.seed(time.time())
+        kwargs.update({"name", "{}.{}".format(CIRQUE_CONTAINER_PREFIX, ''.join(
+            random.choices(string.ascii_lowercase + string.digits, k=10)))})
         kwargs.update(capability_run_args)
-        kwargs.update({
-            "cap_add": ["SYS_TIME"]
-        })
         self.container = self._client.containers.run(
             self.image_name, detach=True, **kwargs)
         self.logger.info(
