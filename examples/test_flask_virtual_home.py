@@ -160,7 +160,7 @@ class TestFlaskVirtualHome(unittest.TestCase):
                     False)), stream=False).json()
 
             roles.add(reply['output'].split()[0])
-        self.assertTrue('leader' in roles)
+        self.assertIn('leader', roles)
         self.assertTrue('router' in roles or 'child' in roles)
 
     def test_004_scan_available_wifi_network(self):
