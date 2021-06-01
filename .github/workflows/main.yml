@@ -35,3 +35,4 @@ jobs:
         sudo pip3 install protobuf==3.12.0
         make pretty-check
         make install-develop
+        sudo ./run_tests.sh
