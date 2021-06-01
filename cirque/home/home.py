@@ -44,9 +44,9 @@ class CirqueHome:
             self.home_id = home_id
         self.home = {'home_id': self.home_id, 'devices': {}}
         self.thread_petitions = {}
-        self.external_lan = HomeLan('{}_external'.format(self.home_id))
+        self.external_lan = HomeLan('cirque_home_{}_external'.format(self.home_id))
         self.internal_lan = HomeLan(
-            '{}_internal'.format(self.home_id), internal=True)
+            'cirque_home_{}_internal'.format(self.home_id), internal=True)
 
         self.logger = CirqueLog.get_cirque_logger('home')
 

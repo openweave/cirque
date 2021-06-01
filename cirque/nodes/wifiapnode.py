@@ -16,6 +16,7 @@
 import os
 import time
 import random
+import string
 
 from subprocess import PIPE
 
@@ -29,6 +30,7 @@ from cirque.nodes.dockernode import DockerNode
 
 RUNTIME_NAMESPACE = "/var/run/netns"
 CHAR_SRC = "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
+CIRQUE_CONTAINER_PREFIX = "cirque_home_ap_"
 
 
 class WiFiAPNode(DockerNode):
@@ -41,7 +43,13 @@ class WiFiAPNode(DockerNode):
         random.seed(time.time())
         self.ssid = ssid
         self.password = password
-        self.container_name = container_name
+
+        if container_name:
+            self.container_name = container_name
+        else:
+            self.container_name = "{}.{}".format(
+                CIRQUE_CONTAINER_PREFIX, ''.join(
+                    random.choices(string.ascii_uppercase + string.digits, k=10)))
         self.wifi_capability = WiFiCapability()
         self.capabilities.append(self.wifi_capability)
         if not self.ssid:
