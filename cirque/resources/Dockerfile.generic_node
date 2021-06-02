@@ -26,7 +26,8 @@ RUN apt-get install -y \
     psmisc \
     dhcpcd5 \
     wpasupplicant \
-    wireless-tools
+    wireless-tools \
+    iproute2
 
 RUN mkdir -p /etc/wpa_supplicant && \
     echo "ctrl_interface=/run/wpa_supplicant" >> /etc/wpa_supplicant/wpa_supplicant.conf && \

@@ -74,6 +74,10 @@ def convert_to_device_pb(device):
         device_pb.device_specification.mount_capability.CopyFrom(
             convert_mount_capability_to_pb(
                 device['capability']['Mount']))
+    if 'TrafficControl' in device['capability']:
+        device_pb.device_specification.trafficcontrol_capability.CopyFrom(
+            convert_trafficcontrol_capability_to_pb(
+                device['capability']['TrafficControl']))
 
     return device_pb
 
@@ -127,6 +131,21 @@ def convert_xvnc_capability_to_pb(capability_description):
     capability_pb = capability_pb2.XvncCapability()
     capability_pb.localhost = capability_description['localhost']
     capability_pb.display_id = capability_description['display_id']
+    return capability_pb
+
+
+def add_trafficcontrol_capability_to_config(device_config,
+                                            trafficcontrol_capability):
+    device_config['capability'].append('TrafficControl')
+    device_config['traffic_control'] = {
+        'latencyMs': trafficcontrol_capability.latency_ms,
+        'loss': trafficcontrol_capability.loss_rate}
+
+
+def convert_trafficcontrol_capability_to_pb(capability_description):
+    capability_pb = capability_pb2.TrafficControlCapability()
+    capability_pb.latency_ms = capability_description['latencyMs']
+    capability_pb.loss_rate = capability_description['loss']
     return capability_pb
 
 
@@ -225,6 +244,9 @@ class CirqueService(service_pb2_grpc.CirqueServiceServicer):
             if specification.WhichOneof('optional_mount_capability'):
                 add_mount_capability_to_config(
                     device_config, specification.mount_capability)
+            if specification.WhichOneof('optional_trafficcontrol_capability'):
+                add_trafficcontrol_capability_to_config(
+                    device_config, specification.trafficcontrol_capability)
 
             device_id = self.homes[request.home_id].add_device(device_config)
             if device_id is None:
