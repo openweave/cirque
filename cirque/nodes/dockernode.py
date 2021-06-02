@@ -54,11 +54,9 @@ class DockerNode:
         capability_run_args = [capability.get_docker_run_args(
             self) for capability in self.capabilities]
         capability_run_args = reduce(
-            merge_capapblity_arg, capability_run_args, {})
+            merge_capapblity_arg, capability_run_args,
+            {'cap_add': ['SYS_TIME']})
         kwargs.update(capability_run_args)
-        kwargs.update({
-            "cap_add": ["SYS_TIME"]
-        })
         self.container = self._client.containers.run(
             self.image_name, detach=True, **kwargs)
         self.logger.info(

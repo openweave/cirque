@@ -22,29 +22,33 @@ git_repository(
 )
 
 load("@rules_python//python:repositories.bzl", "py_repositories")
+
 py_repositories()
-# Only needed if using the packaging rules.
-load("@rules_python//python:pip.bzl", "pip_repositories")
+
+load("@rules_python//python:pip.bzl", "pip3_import", "pip_repositories")
+
 pip_repositories()
 
 http_archive(
     name = "com_github_grpc_grpc",
+    sha256 = "2fcb7f1ab160d6fd3aaade64520be3e5446fc4c6fa7ba6581afdc4e26094bd81",
     strip_prefix = "grpc-1.26.0",
     url = "https://github.com/grpc/grpc/archive/v1.26.0.tar.gz",
-    sha256 = "2fcb7f1ab160d6fd3aaade64520be3e5446fc4c6fa7ba6581afdc4e26094bd81",
 )
 
 load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
+
 grpc_deps()
+
 load("@com_github_grpc_grpc//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")
+
 grpc_extra_deps()
 
-load("@rules_python//python:pip.bzl", "pip3_import")
 pip3_import(
     name = "cirque_deps",
     requirements = "//:requirements.txt",
 )
 
 load("@cirque_deps//:requirements.bzl", "pip_install")
-pip_install()
 
+pip_install()

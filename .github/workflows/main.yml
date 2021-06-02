@@ -25,8 +25,14 @@ jobs:
     # Runs a single command using the runners shell
     - name: Cirque Presubmit
       run: |
-        sudo apt-get update
-        sudo apt-get install bazel socat psmisc tigervnc-standalone-server tigervnc-viewer python3-pip python3-venv python3-setuptools
+        sudo apt install curl gnupg
+        curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor > bazel.gpg
+        sudo mv bazel.gpg /etc/apt/trusted.gpg.d/
+        echo "deb [arch=amd64] https://storage.googleapis.com/bazel-apt stable jdk1.8" | sudo tee /etc/apt/sources.list.d/bazel.list
+        sudo apt update && sudo apt install bazel
+        sudo apt-get install socat psmisc tigervnc-standalone-server tigervnc-viewer python3-pip python3-venv python3-setuptools
         sudo pip3 install pycodestyle==2.5.0
+        sudo pip3 install protobuf==3.12.0
         make pretty-check
         make install-develop
+        sudo ./run_tests.sh

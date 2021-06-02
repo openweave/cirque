@@ -26,6 +26,7 @@ py_library(
         "interactivecapability.py",
         "lanaccesscapability.py",
         "mountcapability.py",
+        "trafficcontrolcapability.py",
         "threadcapability.py",
         "weavecapability.py",
         "wificapability.py",
@@ -47,12 +48,14 @@ py_style_test(
         "interactivecapability.py",
         "lanaccesscapability.py",
         "mountcapability.py",
+        "networkcontrolcapability.py",
         "threadcapability.py",
         "weavecapability.py",
         "wificapability.py",
         "xvnccapability.py",
         "test/test_wifi_capability.py",
         "test/test_mount_capability.py",
+        "test/test_networkcontrol_capability.py",
     ],
     deps = [
         "//cirque/connectivity",
@@ -77,6 +80,16 @@ py_test(
     name="mount_unit_test",
 	  main="test/test_mount_capability.py",
     srcs=["test/test_mount_capability.py"],
+    deps = [
+        "//cirque/capabilities",
+    ],
+)
+
+
+py_test(
+    name="tc_unit_test",
+	  main="test/test_networkcontrol_capability.py",
+    srcs=["test/test_networkcontrol_capability.py"],
     deps = [
         "//cirque/capabilities",
     ],

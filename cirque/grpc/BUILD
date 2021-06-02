@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-load("@rules_python//python:defs.bzl", "py_library", "py_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
 load("@cirque_deps//:requirements.bzl", "requirement")
 load("//utils/pystyletest:pystyletest.bzl", "py_style_test")
 
 py_binary(
     name = "service",
-    srcs = [ ":service.py" ],
+    srcs = [":service.py"],
     deps = [
         "//cirque/home",
         "//cirque/proto:capability_py_pb2",
@@ -32,12 +31,12 @@ py_binary(
 
 py_binary(
     name = "client",
-    srcs = [ ":client.py" ],
+    srcs = [":client.py"],
     deps = [
+        "//cirque/common",
         "//cirque/proto:capability_py_pb2",
         "//cirque/proto:device_py_pb2",
         "//cirque/proto:service_py_pb2_grpc",
-        "//cirque/common",
         requirement("googleapis-common-protos"),
         requirement("grpcio-status"),
         requirement("ipython"),
@@ -45,17 +44,17 @@ py_binary(
 )
 
 py_style_test(
-    name="lint",
+    name = "lint",
     srcs = [
-        "service.py",
         "client.py",
+        "service.py",
     ],
     deps = [
+        "//cirque/common",
+        "//cirque/home",
         "//cirque/proto:capability_py_pb2",
         "//cirque/proto:device_py_pb2",
         "//cirque/proto:service_py_pb2_grpc",
-        "//cirque/common",
-        "//cirque/home",
         requirement("googleapis-common-protos"),
         requirement("grpcio-status"),
     ],

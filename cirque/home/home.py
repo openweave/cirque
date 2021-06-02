@@ -33,6 +33,8 @@ from cirque.capabilities.threadcapability import ThreadCapability
 from cirque.capabilities.weavecapability import WeaveCapability
 from cirque.capabilities.wificapability import WiFiCapability
 from cirque.capabilities.xvnccapability import XvncCapability
+from cirque.capabilities.trafficcontrolcapability \
+    import TrafficControlCapability
 
 
 class CirqueHome:
@@ -112,6 +114,7 @@ class CirqueHome:
             'WiFi': self.__make_wifi_capability,
             'Xvnc': self.__make_xvnc_capability,
             'Mount': self.__make_mount_capability,
+            'TrafficControl': self.__make_trafficcontrolcapability,
         }
         if capability not in factory_functions:
             self.logger.critical(
@@ -171,6 +174,11 @@ class CirqueHome:
     def __make_mount_capability(self, capability, device_config):
         mount_pairs = device_config['mount_pairs']
         return MountCapability(mount_pairs)
+
+    def __make_trafficcontrolcapability(self, capability, device_config):
+        return TrafficControlCapability(
+            latencyMs=device_config.get('traffic_control').get('latencyMs', 0),
+            loss=device_config.get('traffic_control').get('loss', 0))
 
     def get_wifiap_ssid_psk(self, node_id=None):
         def ssid_psk(node):

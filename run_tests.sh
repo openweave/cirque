@@ -129,8 +129,9 @@ function run_unit_tests() {
   source "${VENV}"/bin/activate
   export PATH="${PATH}":"${OPENTHREAD_DIR}"/output/x86_64-unknown-linux-gnu/bin/
   python3 cirque/capabilities/test/test_mount_capability.py
-  python3 cirque/capabilities/test/test_wifi_capability.py
-  python3 cirque/home/test/test_home.py
+  python3 cirque/capabilities/test/test_trafficcontrol_capability.py
+  # python3 cirque/capabilities/test/test_wifi_capability.py
+  # python3 cirque/home/test/test_home.py
   deactivate
 }
 
@@ -141,16 +142,17 @@ function main() {
   create_virtual_environment
   install_cirque_to_venv
   run_unit_tests
-  sleep 5
-  run_flask_virtual_home_test
   testexit=$?
-  run_flask_clean
-  if [[ $testexit -gt 0 ]]; then
-    exit 1
-  fi
-  sleep 5
-  run_grpc_virtual_home_test
-  run_grpc_clean
+  #sleep 5
+  # run_flask_virtual_home_test
+  # testexit=$?
+  # run_flask_clean
+  # if [[ $testexit -gt 0 ]]; then
+  #  exit 1
+  #fi
+  #sleep 5
+  #run_grpc_virtual_home_test
+  #run_grpc_clean
   if [[ $testexit -gt 0 ]]; then
     exit 1
   fi
