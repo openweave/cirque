@@ -24,7 +24,7 @@ from cirque.capabilities.basecapability import BaseCapability
 class XvncCapability(BaseCapability):
     X_SOCKET_PATH = '/tmp/.X11-unix'
 
-    def __init__(self, localhost=True, display_id=0, docker_display_id=None):
+    def __init__(self, localhost=True, display_id=0, docker_display_id=0):
         self.localhost = localhost
         self.__display_id = display_id
         self.__docker_display_id = docker_display_id
@@ -35,8 +35,6 @@ class XvncCapability(BaseCapability):
         xvnc_args = ['Xvnc', '--SecurityTypes=None']
         if self.__display_id == 0:
             self.__display_id = self.__get_next_display_id()
-        if self.__docker_display_id is None:
-            self.__docker_display_id = self.__display_id
         if self.localhost:
             xvnc_args.append('-localhost')
         xvnc_args.append(':{}'.format(self.__display_id))
