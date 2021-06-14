@@ -22,10 +22,15 @@ from cirque.capabilities.xvnccapability import XvncCapability
 @mock.patch('subprocess.Popen')
 class TestXvncCapability(unittest.TestCase):
 
-    def __check_docker_run_args(self, docker_run_args, display_id, docker_display_id):
-        self.assertEqual(docker_run_args['environment'], [f'DISPLAY=:{docker_display_id}'])
-        self.assertEqual(docker_run_args['volumes'],
-            [f'/tmp/.X11-unix/X{display_id}:/tmp/.X11-unix/X{docker_display_id}'])
+    def __check_docker_run_args(self, docker_run_args, display_id,
+                                docker_display_id):
+        self.assertEqual(
+            docker_run_args['environment'], [f'DISPLAY=:{docker_display_id}'])
+
+        src_path = f'/tmp/.X11-unix/X{display_id}'
+        dest_path = f'/tmp/.X11-unix/X{docker_display_id}'
+        self.assertEqual(
+            docker_run_args['volumes'], [f'{src_path}:{dest_path}'])
 
     def test_auto_assigned_display_id(self, popen):
         xvnccapability = XvncCapability(display_id=0)
