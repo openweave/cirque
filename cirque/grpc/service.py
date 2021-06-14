@@ -123,6 +123,7 @@ def convert_wifi_capability_to_pb(capability_description):
 def add_xvnc_capability_to_config(device_config, xvnc_capability):
     device_config['capability'].append('Xvnc')
     device_config['xvnc_localhost'] = xvnc_capability.localhost
+    device_config['docker_display_id'] = xvnc_capability.docker_display_id
     if xvnc_capability.display_id != 0:
         device_config['display_id'] = xvnc_capability.display_id
 

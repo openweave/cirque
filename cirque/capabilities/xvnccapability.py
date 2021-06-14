@@ -24,9 +24,10 @@ from cirque.capabilities.basecapability import BaseCapability
 class XvncCapability(BaseCapability):
     X_SOCKET_PATH = '/tmp/.X11-unix'
 
-    def __init__(self, localhost=True, display_id=0):
+    def __init__(self, localhost=True, display_id=0, docker_display_id=0):
         self.localhost = localhost
         self.__display_id = display_id
+        self.__docker_display_id = docker_display_id
         self.__xvnc_process = None
         self.__launch_xvnc_server()
 
@@ -61,8 +62,10 @@ class XvncCapability(BaseCapability):
 
     def get_docker_run_args(self, dockernode):
         return {
-            'environment': ['DISPLAY=:{}'.format(self.__display_id)],
-            'volumes': ['{}:{}'.format(self.X_SOCKET_PATH, self.X_SOCKET_PATH)]
+            'environment': ['DISPLAY=:{}'.format(self.__docker_display_id)],
+            'volumes': ['{}/X{}:{}/X{}'.format(
+                self.X_SOCKET_PATH, self.__display_id, self.X_SOCKET_PATH,
+                self.__docker_display_id)]
         }
 
     def enable_capability(self, docker_node):

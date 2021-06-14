@@ -130,6 +130,7 @@ function run_unit_tests() {
   export PATH="${PATH}":"${OPENTHREAD_DIR}"/output/x86_64-unknown-linux-gnu/bin/
   python3 cirque/capabilities/test/test_mount_capability.py
   python3 cirque/capabilities/test/test_trafficcontrol_capability.py
+  python3 cirque/capabilities/test/test_xvnc_capability.py
   # python3 cirque/capabilities/test/test_wifi_capability.py
   # python3 cirque/home/test/test_home.py
   deactivate
