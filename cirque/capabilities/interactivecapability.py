@@ -26,4 +26,5 @@ class InteractiveCapability(BaseCapability):
     def get_docker_run_args(self, docker_node):
         return {
             'stdin_open': True,
+            'tty': True,
         }
