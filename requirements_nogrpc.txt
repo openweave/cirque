@@ -1,4 +1,3 @@
-cmd2
 docker >= 4.1.0
 flask >= 1.1.0
 pycodestyle >= 2.5.0
