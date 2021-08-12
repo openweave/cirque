@@ -27,7 +27,6 @@ NO_GRPC            ?=
 # installed before Cirque may be used.
 
 DPKG_PREREQUISITES := \
-	bazel \
 	socat \
 	psmisc \
 	tigervnc-standalone-server \
