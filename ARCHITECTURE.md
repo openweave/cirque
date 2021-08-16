@@ -50,23 +50,8 @@ For WiFi radio simulation, Cirque utilizes the kernel module `mac80211_hwsim` to
 
 With *Traffic Control* capability enabled, and `iproute2` package installed in the docker image for device you can use `tc` command to simulate a bad network environment (high latency, packet loss, etc.). You can easily setup latency and packet loss rate on default interface `eth0` in the container by specify "latencyMs" (millisecond) and "loss" (percent) for Traffic Control capability.
 
-### Command Line Interface
-
-Cirque also provides a CLI interface that provides developers an alternative way of accessing the cirque functionalities without spinning up either a grpc or flask services. This would dramatically reduce the setup time for developers who would like to develop features or leverage cirque functionalities on some other projects. Following are the commands that are supported by cirque cli
-
-- help: prints out all the supported cli commands. Using help <command> to learn morn detail of a specific command.
-- close_device: close a cirque device
-- create_home: create a cirque home
-- device_state: prints out device information of the device, such as device type, name, ip address..etc.
-- home_devices: prints out all the device under specified cirque home id.
-- run_exec: the feature that allows developer to run certain command on a device.
-- create_device: create a cirque deivce.
-- destroy_home: tear down a cirque home.
-- exit: tear down all the remaining homes and closes devices under these homes then leave cirque cli interface.
-- history: prints out historical commands that developer has used.
-- homes: prints out all the created homes in a list.
-- version: cirque version
-
+### IPVlan feature
+With *IpVlan feature*, we provide a way for user to be able to have mutiple real devices and mutiple virtual devices in the same private network, so user could do all kinds of tests in hybrid mode. And see the whole setting as a home.
 
 ## CASE Study
 
