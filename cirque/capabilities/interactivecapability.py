@@ -16,15 +16,16 @@ from cirque.capabilities.basecapability import BaseCapability
 
 
 class InteractiveCapability(BaseCapability):
-    def __init__(self):
-        pass
 
-    @property
-    def name(self):
-        return 'Interactive'
+  def __init__(self):
+    pass
 
-    def get_docker_run_args(self, docker_node):
-        return {
-            'stdin_open': True,
-            'tty': True,
-        }
+  @property
+  def name(self):
+    return 'Interactive'
+
+  def get_docker_run_args(self, docker_node):
+    return {
+        'stdin_open': True,
+        'tty': True,
+    }

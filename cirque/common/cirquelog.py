@@ -12,27 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import logging
 
 
 class CirqueLog:
 
-    logger = None
+  logger = None
 
-    @classmethod
-    def setup_cirque_logger(cls, level=logging.INFO):
-        if cls.logger:
-            return
-        cls.logger = logging.getLogger('cirque')
-        cls.logger.setLevel(level)
-        sh = logging.StreamHandler()
-        sh.setFormatter(
-            logging.Formatter(
-                '%(asctime)s [%(name)s] %(levelname)s %(message)s'))
-        cls.logger.addHandler(sh)
+  @classmethod
+  def setup_cirque_logger(cls, level=logging.INFO):
+    if cls.logger:
+      return
+    cls.logger = logging.getLogger('cirque')
+    cls.logger.setLevel(level)
+    sh = logging.StreamHandler()
+    sh.setFormatter(
+        logging.Formatter('%(asctime)s [%(name)s] %(levelname)s %(message)s'))
+    cls.logger.addHandler(sh)
 
-    @classmethod
-    def get_cirque_logger(cls, name=None):
-        name = 'cirque' if not name else 'cirque.{}'.format(name)
-        return logging.getLogger(name)
+  @classmethod
+  def get_cirque_logger(cls, name=None):
+    name = 'cirque' if not name else 'cirque.{}'.format(name)
+    return logging.getLogger(name)

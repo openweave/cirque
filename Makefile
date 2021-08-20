@@ -16,8 +16,8 @@
 
 DPKG               ?= $(shell which dpkg 2> /dev/null)
 MAKE               ?= make
-PYCODE_LINT          ?= pycodestyle
-PYCODE_LINT_ARGS     ?= --max-line-length=79
+PYCODE_LINT          ?= yapf
+PYCODE_LINT_ARGS     ?= --style='{column_limit: 79}' --recursive
 PYTHON             ?= python3
 PYTHON_VERSION     ?= $(shell $(PYTHON) -c "import sys; sys.stdout.write(sys.version[:3])")
 SUDO               ?= sudo
