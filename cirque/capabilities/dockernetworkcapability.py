@@ -16,15 +16,14 @@ from cirque.capabilities.basecapability import BaseCapability
 
 
 class DockerNetworkCapability(BaseCapability):
-    def __init__(self, network_name, network_type):
-        self.network_name = network_name
-        self.network_type = network_type
 
-    @property
-    def name(self):
-        return self.network_type
+  def __init__(self, network_name, network_type):
+    self.network_name = network_name
+    self.network_type = network_type
 
-    def get_docker_run_args(self, docker_node):
-        return {
-            'network': self.network_name
-        }
+  @property
+  def name(self):
+    return self.network_type
+
+  def get_docker_run_args(self, docker_node):
+    return {'network': self.network_name}

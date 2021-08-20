@@ -12,39 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from cirque.capabilities.basecapability import BaseCapability
 from cirque.common.utils import manipulate_iptable_src_dst_rule
 
 
 class LanAccessCapability(BaseCapability):
-    def __init__(self, home_lan):
-        self.__home_lan = home_lan
 
-    @property
-    def name(self):
-        return 'LanAccess'
+  def __init__(self, home_lan):
+    self.__home_lan = home_lan
 
-    def enable_capability(self, docker_node):
-        node_address = docker_node.description['ipv4_addr']
-        subnet = self.__home_lan.subnet
-        manipulate_iptable_src_dst_rule(
-            self.__home_lan.logger,
-            node_address,
-            subnet,
-            'ACCEPT')
-        manipulate_iptable_src_dst_rule(
-            self.__home_lan.logger,
-            subnet,
-            node_address,
-            'ACCEPT')
+  @property
+  def name(self):
+    return 'LanAccess'
 
-    def disable_capability(self, docker_node):
-        node_address = docker_node.description['ipv4_addr']
-        subnet = self.__home_lan.subnet
-        manipulate_iptable_src_dst_rule(self.__home_lan.logger,
-                                        node_address, subnet,
-                                        'ACCEPT', add=False)
-        manipulate_iptable_src_dst_rule(self.__home_lan.logger,
-                                        subnet, node_address,
-                                        'ACCEPT', add=False)
+  def enable_capability(self, docker_node):
+    node_address = docker_node.description['ipv4_addr']
+    subnet = self.__home_lan.subnet
+    manipulate_iptable_src_dst_rule(self.__home_lan.logger, node_address,
+                                    subnet, 'ACCEPT')
+    manipulate_iptable_src_dst_rule(self.__home_lan.logger, subnet,
+                                    node_address, 'ACCEPT')
+
+  def disable_capability(self, docker_node):
+    node_address = docker_node.description['ipv4_addr']
+    subnet = self.__home_lan.subnet
+    manipulate_iptable_src_dst_rule(
+        self.__home_lan.logger, node_address, subnet, 'ACCEPT', add=False)
+    manipulate_iptable_src_dst_rule(
+        self.__home_lan.logger, subnet, node_address, 'ACCEPT', add=False)

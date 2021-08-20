@@ -12,21 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import unittest
 
 from cirque.capabilities.mountcapability import MountCapability
 
 
 class TestMountCapability(unittest.TestCase):
-    def test_mount_capability(self):
-        mountcapability = MountCapability([('aaa', 'bbb')])
-        self.assertEqual(mountcapability.name, 'Mount')
-        args = mountcapability.get_docker_run_args(None)
-        self.assertIn('volumes', args)
-        self.assertEqual('aaa:bbb', args['volumes'][0])
+
+  def test_mount_capability(self):
+    mountcapability = MountCapability([('aaa', 'bbb')])
+    self.assertEqual(mountcapability.name, 'Mount')
+    args = mountcapability.get_docker_run_args(None)
+    self.assertIn('volumes', args)
+    self.assertEqual('aaa:bbb', args['volumes'][0])
 
 
 if __name__ == '__main__':
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestMountCapability)
-    unittest.TextTestRunner(verbosity=2).run(suite)
+  suite = unittest.TestLoader().loadTestsFromTestCase(TestMountCapability)
+  unittest.TextTestRunner(verbosity=2).run(suite)

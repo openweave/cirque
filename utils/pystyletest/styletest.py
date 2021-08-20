@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import sys
 import pylint.lint
 import pycodestyle
@@ -24,4 +23,4 @@ pep8style = pycodestyle.StyleGuide(quiet=False)
 result = pep8style.check_files(sys.argv[1:])
 
 if result.total_errors != 0:
-    raise SystemExit(1)
+  raise SystemExit(1)

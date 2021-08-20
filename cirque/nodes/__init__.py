@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from cirque.nodes.processnode import ProcessNode
 
 from cirque.nodes.wifiapnode import WiFiAPNode

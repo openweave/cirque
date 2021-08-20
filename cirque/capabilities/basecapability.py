@@ -14,19 +14,20 @@
 
 
 class BaseCapability:
-    @property
-    def name(self):
-        return ''
 
-    def get_docker_run_args(self, docker_node):
-        return {}
+  @property
+  def name(self):
+    return ''
 
-    def enable_capability(self, docker_node):
-        pass
+  def get_docker_run_args(self, docker_node):
+    return {}
 
-    def disable_capability(self, docker_node):
-        pass
+  def enable_capability(self, docker_node):
+    pass
 
-    @property
-    def description(self):
-        return {}
+  def disable_capability(self, docker_node):
+    pass
+
+  @property
+  def description(self):
+    return {}

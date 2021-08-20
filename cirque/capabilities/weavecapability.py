@@ -16,36 +16,37 @@ from cirque.capabilities.basecapability import BaseCapability
 
 
 class WeaveCapability(BaseCapability):
-    def __init__(self, cert_path, cert_target_path=None, daemon='nldaemon'):
-        self.cert_path = cert_path
-        if cert_target_path:
-            self.cert_target_path = cert_target_path
-        else:
-            self.cert_target_path = \
-                '/mnt/stateful_partition/nestlabs/device_provisioning.config'
-        self.daemon = daemon
 
-    @property
-    def name(self):
-        return 'Weave'
+  def __init__(self, cert_path, cert_target_path=None, daemon='nldaemon'):
+    self.cert_path = cert_path
+    if cert_target_path:
+      self.cert_target_path = cert_target_path
+    else:
+      self.cert_target_path = \
+          '/mnt/stateful_partition/nestlabs/device_provisioning.config'
+    self.daemon = daemon
 
-    def get_docker_run_args(self, docker_node):
-        return {
-            'volumes': ['{}:{}'.format(self.cert_path, self.cert_target_path)],
-            'sysctls': {
-                'net.ipv6.conf.all.disable_ipv6': 0,
-                'net.ipv4.conf.all.forwarding': 1,
-                'net.ipv6.conf.all.forwarding': 1,
-            },
-            'privileged': True,
-        }
+  @property
+  def name(self):
+    return 'Weave'
 
-    def disable_capability(self, docker_node):
-        docker_node.container.exec_run('killall {}'.format(self.daemon))
+  def get_docker_run_args(self, docker_node):
+    return {
+        'volumes': ['{}:{}'.format(self.cert_path, self.cert_target_path)],
+        'sysctls': {
+            'net.ipv6.conf.all.disable_ipv6': 0,
+            'net.ipv4.conf.all.forwarding': 1,
+            'net.ipv6.conf.all.forwarding': 1,
+        },
+        'privileged': True,
+    }
 
-    @property
-    def description(self):
-        return {
-            'config': self.cert_path,
-            'target_path': self.cert_target_path,
-        }
+  def disable_capability(self, docker_node):
+    docker_node.container.exec_run('killall {}'.format(self.daemon))
+
+  @property
+  def description(self):
+    return {
+        'config': self.cert_path,
+        'target_path': self.cert_target_path,
+    }

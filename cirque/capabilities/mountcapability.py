@@ -16,21 +16,24 @@ from cirque.capabilities.basecapability import BaseCapability
 
 
 class MountCapability(BaseCapability):
-    def __init__(self, mount_pairs):
-        self.mount_pairs = mount_pairs
 
-    @property
-    def name(self):
-        return 'Mount'
+  def __init__(self, mount_pairs):
+    self.mount_pairs = mount_pairs
 
-    def get_docker_run_args(self, docker_node):
-        return {
-            'volumes': ['{}:{}'.format(host_path, target_path)
-                        for host_path, target_path in self.mount_pairs],
-        }
+  @property
+  def name(self):
+    return 'Mount'
 
-    @property
-    def description(self):
-        return {
-            'mount_pairs': self.mount_pairs,
-        }
+  def get_docker_run_args(self, docker_node):
+    return {
+        'volumes': [
+            '{}:{}'.format(host_path, target_path)
+            for host_path, target_path in self.mount_pairs
+        ],
+    }
+
+  @property
+  def description(self):
+    return {
+        'mount_pairs': self.mount_pairs,
+    }
