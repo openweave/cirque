@@ -30,6 +30,7 @@ class MountCapability(BaseCapability):
             '{}:{}'.format(host_path, target_path)
             for host_path, target_path in self.mount_pairs
         ],
+        'privileged': True,
     }
 
   @property
