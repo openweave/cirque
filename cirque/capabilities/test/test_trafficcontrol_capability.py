@@ -55,7 +55,7 @@ class TestTrafficControl(unittest.TestCase):
     ret = self.node1.container.exec_run('ping -q -c 25 {}'.format(
         self.node2.description['ipv4_addr']))
     print('Ping command output: {}'.format(ret.output.decode()))
-    self.assertTrue(ret.exit_code == 0)
+    self.assertEqual(ret.exit_code, 0)
     received = float(
         re.findall(rb'\s+(\d+)\sreceived', ret.output)[0].decode('utf-8'))
     print('Packets lost: {}/15'.format(25 - received))

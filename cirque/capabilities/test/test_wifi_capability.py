@@ -53,9 +53,9 @@ class TestWiFiFeature(unittest.TestCase):
 
   def test_001_scan_available_wifi_network(self):
     ret = self.generic_node.container.exec_run('iwlist wlan0 scanning')
-    self.assertTrue(ret.exit_code == 0)
+    self.assertEqual(ret.exit_code, 0)
     ssid = re.findall(rb'\s+ESSID:"([^"]+)"', ret.output)[0].decode('utf-8')
-    self.assertTrue(ssid == self.ap_ssid)
+    self.assertEqual(ssid, self.ap_ssid)
 
   def test_002_connect_to_desired_wifi_network(self):
     print('')
