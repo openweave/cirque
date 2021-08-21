@@ -52,7 +52,7 @@ class HomeLan:
       self.logger.error('Failed to get network interface for creating '
                         'ipvlan %s: %s' % (self.__name, ret.stderr))
     interface = ret.stdout.rstrip().decode('utf-8')
-    subnet_command = "ip addr show %s | awk '/inet / {print $2}'" % (interface)
+    subnet_command = "ip addr show %s | awk '/inet / {print $2}'" % interface
     ret = host_run(self.logger, subnet_command)
     if ret.returncode != 0:
       self.logger.error('Failed to get subnetwork for create '

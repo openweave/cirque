@@ -186,7 +186,7 @@ class TestGrpcVirtualHome(unittest.TestCase):
               device_id=device.device_id,
               command='ot-ctl state'))
       roles.add(reply.output.split()[0])
-    self.assertTrue('leader' in roles)
+    self.assertIn('leader', roles)
     self.assertTrue('router' in roles or 'child' in roles)
 
   def test_004_scan_available_wifi_network(self):
