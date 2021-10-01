@@ -24,6 +24,40 @@ set -e
 SRC_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 OPEN_THREAD_DIR="${SRC_DIR}"/openthread
 IMAGES=`docker images --filter=reference='*:latest' | awk '{print $1}'`
+BLUEZ_PACKAGE="bluez-5.56"
+BLUEZ_DEPENS=( udev \
+              libdbus-1-dev \
+              libdbus-glib-1-dev \
+              libglib2.0-dev \
+              libical-dev \
+              libreadline-dev \
+              libudev-dev \
+              libusb-dev \
+              python3-dev \
+              python3-pip )
+
+function install_required_dependencies() {
+
+  for dep in "${BLUEZ_DEPENS[@]}"; do
+    if $(dpkg -s $dep > /dev/null 2>&1); then
+      continue
+    else
+      echo "Bluez requried dependencies verify failed..."
+      echo "Please install bluez required dependencies by running 'sudo apt-get install -y $dep'"
+      exit 1
+    fi
+  done
+}
+
+function install_bluez() {
+  install_required_dependencies
+  wget http://www.kernel.org/pub/linux/bluetooth/${BLUEZ_PACKAGE}.tar.gz
+  tar xzf ${BLUEZ_PACKAGE}.tar.gz
+  rm -rf ${BLUEZ_PACKAGE}.tar.gz
+  cd ${BLUEZ_PACKAGE}
+  ./configure --prefix=/usr --mandir=/usr/share/man --sysconfdir=/etc --localstatedir=/var --enable-experimental --with-systemdsystemunitdir=/lib/systemd/system --with-systemduserunitdir=/usr/lib/systemd --enable-deprecated --enable-testing --enable-tools
+  make
+}
 
 function install_openthread() {
   if [ ! -d "${OPEN_THREAD_DIR}" ]; then
@@ -58,6 +92,7 @@ function build_generic_node_docker_image() {
 }
 
 function main() {
+  install_bluez
   install_openthread
   build_wifiap_docker_image
   build_generic_node_docker_image

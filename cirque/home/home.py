@@ -24,6 +24,7 @@ from cirque.connectivity.homelan import HomeLan
 from cirque.connectivity.threadsimpipe import ThreadSimPipe
 from cirque.nodes.wifiapnode import WiFiAPNode
 from cirque.nodes.dockernode import DockerNode
+from cirque.capabilities.bluetoothcapability import BlueToothCapability
 from cirque.capabilities.interactivecapability import InteractiveCapability
 from cirque.capabilities.dockernetworkcapability import DockerNetworkCapability
 from cirque.capabilities.lanaccesscapability import LanAccessCapability
@@ -84,14 +85,16 @@ class CirqueHome:
       base_image = device_config['type']
 
     # configure docker network
-    if 'docker_network' in device_config and \
-            device_config['docker_network'] == 'internal':
+    if 'Bluetooth' in device_config['capability']:
+      pass
+    elif 'docker_network' in device_config and \
+            device_config['docker_network'] == 'Internal':
       capabilities.append(self.__make_internal_network_capability())
     elif 'docker_network' in device_config and \
-            device_config['docker_network'] == 'ipv6':
+            device_config['docker_network'] == 'Ipv6':
       capabilities.append(self.__make_ipv6_network_capability())
     elif 'docker_network' in device_config and \
-            device_config['docker_network'] == 'ipvlan':
+            device_config['docker_network'] == 'IpvLan':
       capabilities.append(self.__make_ipvlan_network_capability())
     else:
       capabilities.append(self.__make_external_network_capability())
@@ -116,20 +119,43 @@ class CirqueHome:
 
   def __make_capability(self, capability, device_config):
     factory_functions = {
+        'Bluetooth': self.__make_bluetooth_capability,
         'Interactive': self.__make_interactive_capability,
         'LanAccess': self.__make_lan_access_capability,
+        'Mount': self.__make_mount_capability,
         'Thread': self.__make_thread_capability,
+        'TrafficControl': self.__make_trafficcontrolcapability,
         'Weave': self.__make_weave_capability,
         'WiFi': self.__make_wifi_capability,
         'Xvnc': self.__make_xvnc_capability,
-        'Mount': self.__make_mount_capability,
-        'TrafficControl': self.__make_trafficcontrolcapability,
     }
     if capability not in factory_functions:
       self.logger.critical('Unsupported capability {}'.format(capability))
       return None
     else:
       return factory_functions[capability](capability, device_config)
+
+  # 4 network settings
+  def __make_external_network_capability(self):
+    return DockerNetworkCapability(self.external_lan.name, 'external')
+
+  def __make_internal_network_capability(self):
+    return DockerNetworkCapability(self.internal_lan.name, 'internal')
+  
+  def __make_ipv6_network_capability(self):
+    return DockerNetworkCapability(self.ipv6_lan.name, 'ipv6')
+  
+  def __make_ipvlan_network_capability(self):
+    return DockerNetworkCapability(self.ipvlan_lan.name, 'ipvlan')
+
+  def __make_bluetooth_capability(self, capability, device_config):
+      num_infs = device_config.get('num_infs', 2)
+      return BlueToothCapability(num_btvirts=num_infs)
+
+  def __make_trafficcontrolcapability(self, capability, device_config):
+    return TrafficControlCapability(
+        latencyMs=device_config.get('traffic_control').get('latencyMs', 0),
+        loss=device_config.get('traffic_control').get('loss', 0))
 
   def __make_interactive_capability(self, capability, device_config):
     return InteractiveCapability()
@@ -141,6 +167,10 @@ class CirqueHome:
     else:
       home_lan = self.external_lan
     return LanAccessCapability(home_lan)
+
+  def __make_mount_capability(self, capability, device_config):
+    mount_pairs = device_config['mount_pairs']
+    return MountCapability(mount_pairs)
 
   def __make_thread_capability(self, capability, device_config):
     petition = device_config['thread_petition'] \
@@ -164,19 +194,7 @@ class CirqueHome:
 
   def __make_wifi_capability(self, capability, device_config):
     return WiFiCapability()
-
-  def __make_internal_network_capability(self):
-    return DockerNetworkCapability(self.internal_lan.name, 'internal')
-
-  def __make_external_network_capability(self):
-    return DockerNetworkCapability(self.external_lan.name, 'external')
-
-  def __make_ipv6_network_capability(self):
-    return DockerNetworkCapability(self.ipv6_lan.name, 'ipv6')
-
-  def __make_ipvlan_network_capability(self):
-    return DockerNetworkCapability(self.ipvlan_lan.name, 'ipvlan')
-
+  
   def __make_xvnc_capability(self, capability, device_config):
     localhost = device_config['xvnc_localhost'] \
         if 'xvnc_localhost' in device_config else True
@@ -185,15 +203,6 @@ class CirqueHome:
     docker_display_id = device_config['docker_display_id'] \
         if 'docker_display_id' in device_config else 0
     return XvncCapability(localhost, display_id, docker_display_id)
-
-  def __make_mount_capability(self, capability, device_config):
-    mount_pairs = device_config['mount_pairs']
-    return MountCapability(mount_pairs)
-
-  def __make_trafficcontrolcapability(self, capability, device_config):
-    return TrafficControlCapability(
-        latencyMs=device_config.get('traffic_control').get('latencyMs', 0),
-        loss=device_config.get('traffic_control').get('loss', 0))
 
   def get_wifiap_ssid_psk(self, node_id=None):
 
