@@ -111,6 +111,10 @@ class DockerNode:
       description = {
           'ipv4_addr': network_info[network_name]['IPAddress'],
       }
+      if network_info[network_name].get('IPv6Gateway', None):
+        description.update({
+          'ipv6_addr': network_info[network_name]['GlobalIPv6Address'],
+        })
     for capability in self.capabilities:
       description.update(capability.description)
     return description

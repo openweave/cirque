@@ -47,13 +47,11 @@ class CirqueHome:
       self.home_id = home_id
     self.home = {'home_id': self.home_id, 'devices': {}}
     self.thread_petitions = {}
-    # creates all kinds of supported network and choose the one
-    # that is picked by device's capability
-    self.ipvlan_lan = HomeLan('{}_ipvlan'.format(self.home_id))
-    self.ipv6_lan = HomeLan('{}_ipv6'.format(self.home_id), ipv6=True)
-    self.external_lan = HomeLan('{}_external'.format(self.home_id))
-    self.internal_lan = HomeLan(
-        '{}_internal'.format(self.home_id), internal=True)
+    # network
+    self.external_lan = None
+    self.internal_lan = None
+    self.ipv6_lan = None
+    self.ipvlan_lan = None
     self.logger = CirqueLog.get_cirque_logger('home')
 
   def __next_thread_node_id(self, petition):
@@ -85,18 +83,29 @@ class CirqueHome:
       base_image = device_config['type']
 
     # configure docker network
+    # bluetooth feature uses host network, can not create customize
+    # networks.
     if 'Bluetooth' in device_config['capability']:
       pass
     elif 'docker_network' in device_config and \
             device_config['docker_network'] == 'Internal':
+      if not self.internal_lan:
+          self.internal_lan = HomeLan(
+            '{}_internal'.format(self.home_id), internal=True)
       capabilities.append(self.__make_internal_network_capability())
     elif 'docker_network' in device_config and \
             device_config['docker_network'] == 'Ipv6':
+      if not self.ipv6_lan:
+        self.ipv6_lan = HomeLan('{}_ipv6'.format(self.home_id), ipv6=True)
       capabilities.append(self.__make_ipv6_network_capability())
     elif 'docker_network' in device_config and \
             device_config['docker_network'] == 'IpvLan':
+      if not self.ipvlan_lan:
+        self.ipvlan_lan = HomeLan('{}_ipvlan'.format(self.home_id))
       capabilities.append(self.__make_ipvlan_network_capability())
     else:
+      if not self.external_lan:
+        self.external_lan = HomeLan('{}_external'.format(self.home_id))
       capabilities.append(self.__make_external_network_capability())
 
     if 'type' not in device_config:
@@ -141,10 +150,10 @@ class CirqueHome:
 
   def __make_internal_network_capability(self):
     return DockerNetworkCapability(self.internal_lan.name, 'internal')
-  
+
   def __make_ipv6_network_capability(self):
     return DockerNetworkCapability(self.ipv6_lan.name, 'ipv6')
-  
+
   def __make_ipvlan_network_capability(self):
     return DockerNetworkCapability(self.ipvlan_lan.name, 'ipvlan')
 
@@ -256,8 +265,10 @@ class CirqueHome:
   def destroy_home(self):
     for node in self.home['devices'].values():
       node.stop()
-    self.external_lan.close()
-    self.internal_lan.close()
+    for lan in ('external_lan', 'internal_lan', 'ipv6_lan', 'ipvlan_lan'):
+      if getattr(self, lan):
+        getattr(self, lan).close()
+
     self.home = None
     return self.home_id
 
