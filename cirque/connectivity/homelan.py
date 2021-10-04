@@ -49,8 +49,8 @@ class HomeLan:
       cmd.append('--ipv6')
     ret = host_run(self.logger, cmd)
     if ret.returncode != 0:
-      self.logger.error("Failed to create home lan %s: %s" % (
-        self.__name, ret.stderr))
+      self.logger.error("%s: Failed to create home lan %s" % (
+        ret.stderr, self.__name))
     if self.__ipv6:
       self.__enable_ipv6_external_access()
 
