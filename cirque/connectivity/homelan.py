@@ -49,7 +49,8 @@ class HomeLan:
       cmd.append('--ipv6')
     ret = host_run(self.logger, cmd)
     if ret.returncode != 0:
-      self.logger.error('Failed to create home lan %s', self.__name)
+      self.logger.error("Failed to create home lan %s: %s " % (
+        self.__name, ret.stderr))
     if self.__ipv6:
       self.__enable_ipv6_external_access()
 
@@ -102,7 +103,8 @@ class HomeLan:
        "! -o docker0 -j MASQUERADE"])
     ret = host_run(self.logger, ip6tables_command)
     if ret.returncode != 0:
-      self.logger.error('Fail to setup ipv6 external access in ip6tables')
+      self.logger.error(
+        'Fail to setup ipv6 external access in ip6tables: %s' % ret.stderr)
 
   def __inspect_network_properties(self):
     ret = host_run(self.logger, ['docker', 'network', 'inspect', self.__name])
