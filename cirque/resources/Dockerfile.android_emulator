@@ -6,6 +6,10 @@ USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    	dnsmasq \
+    	iproute2 \
+	net-tools \
+	iputils-ping \
     	openjdk-8-jdk \
 	tzdata \
 	wget \
@@ -30,6 +34,8 @@ RUN wget 'https://dl.google.com/android/repository/sdk-tools-linux-4333796.zip' 
 	--tag "google_apis" \
 	--abi "x86"
 
+COPY android_init.sh /
+
 ENV ANDROID_HOME=/opt/android
 ENV PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/tools/bin:$ANDROID_HOME/platform-tools:$PATH
 ENV LD_LIBRARY_PATH=$ANDROID_HOME/emulator/lib64:$ANDROID_HOME/emulator/lib64/qt/lib:$LD_LIBRARY_PATH
@@ -37,5 +43,4 @@ ENV QT_DEBUG_PLUGINS=1
 
 RUN echo "export LD_LIBRARY_PATH=$ANDROID_HOME/emulator/lib64:$ANDROID_HOME/emulator/lib64/qt/lib" >> /root/.bashrc
 
-CMD emulator -avd emulator -no-boot-anim -no-audio -netdelay none -wipe-data -accel on -gpu off -skin 1080x1920
-
+ENTRYPOINT ["/android_init.sh"]
