@@ -34,7 +34,10 @@ class HomeLan:
       self.__create_ipvlan_network()
     else:
       self.__create_docker_network()
-      self.__disable_container_mutual_access()
+      # bypass disable mutual access for ipv4
+      # in ipv6 feature.
+      if 'ipv6' not in self.__name:
+        self.__disable_container_mutual_access()
 
   def __create_docker_network(self):
     # The docker-py library will add a weird route which disconnects
