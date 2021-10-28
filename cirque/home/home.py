@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import atexit
 import docker
 import os
 import time
@@ -277,12 +278,15 @@ class CirqueHome:
       return ''
     return self.home['devices'][node_id].get_device_log(tail)
 
+  @atexit.register
   def destroy_home(self):
     for node in self.home['devices'].values():
       node.stop()
     for lan in ('external_lan', 'internal_lan', 'ipv6_lan', 'ipvlan_lan'):
       if getattr(self, lan):
         getattr(self, lan).close()
+    self.docker_client.containers.prune()
+    self.docker_client.networks.prune()
 
     self.home = None
     return self.home_id
