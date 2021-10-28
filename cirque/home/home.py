@@ -52,6 +52,7 @@ class CirqueHome:
     self.internal_lan = None
     self.ipv6_lan = None
     self.ipvlan_lan = None
+    atexit.register(self.destroy_home)
     self.logger = CirqueLog.get_cirque_logger('home')
 
   def __next_thread_node_id(self, petition):
@@ -278,8 +279,9 @@ class CirqueHome:
       return ''
     return self.home['devices'][node_id].get_device_log(tail)
 
-  @atexit.register
   def destroy_home(self):
+    if not self.home:
+      return
     for node in self.home['devices'].values():
       node.stop()
     for lan in ('external_lan', 'internal_lan', 'ipv6_lan', 'ipvlan_lan'):
@@ -287,7 +289,6 @@ class CirqueHome:
         getattr(self, lan).close()
     self.docker_client.containers.prune()
     self.docker_client.networks.prune()
-
     self.home = None
     return self.home_id
 
