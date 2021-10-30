@@ -40,12 +40,12 @@ class XvncCapability(BaseCapability):
     self.xvnc_proces = subprocess.Popen(xvnc_args)
 
   def __get_next_display_id(self):
-    if not os.path.exists(self.X_SOCKET_PATH):
+    if not os.path.exists(self.X_SOCKET_PATH) or \
+       len(os.listdir(self.X_SOCKET_PATH)) == 0:
       return 0
-    else:
-      x_server_ids = glob.glob(os.path.join(self.X_SOCKET_PATH, 'X*'))
-      x_server_ids = [int(os.path.basename(f)[1:]) for f in x_server_ids]
-      return max(x_server_ids) + 1
+    x_server_ids = glob.glob(os.path.join(self.X_SOCKET_PATH, 'X*'))
+    x_server_ids = [int(os.path.basename(f)[1:]) for f in x_server_ids]
+    return max(x_server_ids) + 1
 
   @property
   def name(self):
