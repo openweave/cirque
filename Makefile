@@ -30,7 +30,6 @@ DPKG_PREREQUISITES := \
 	socat \
 	psmisc \
 	tigervnc-standalone-server \
-	tigervnc-viewer \
 	python3-pip \
 	python3-setuptools \
 	python3-venv \
