@@ -122,7 +122,7 @@ class CirqueHome:
       device_node = WiFiAPNode(self.docker_client, base_image=base_image)
     else:
       device_node = DockerNode(
-          self.docker_client, device_type, capabilities, base_image=base_image)
+          self.docker_client, device_type, capabilities, entrypoint=device_config.get('entrypoint', None), base_image=base_image)
     device_node.run()
     if device_node.id is not None:
       self.home['devices'][device_node.id] = device_node
