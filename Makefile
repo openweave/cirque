@@ -20,7 +20,6 @@ PYCODE_LINT          ?= yapf
 PYCODE_LINT_ARGS     ?= --style='{column_limit: 79}' --recursive
 PYTHON             ?= python3
 PYTHON_VERSION     ?= $(shell $(PYTHON) -c "import sys; sys.stdout.write(sys.version[:3])")
-SUDO               ?= sudo
 NO_GRPC            ?=
 
 # The list of Debian packages on which Cirque depends which must be
