@@ -20,8 +20,8 @@ import docker
 import cirque.common.utils as utils
 
 from cirque.common.cirquelog import CirqueLog
-from cirque.capabilities.trafficcontrolcapability \
-    import TrafficControlCapability
+from cirque.capabilities.trafficcontrolcapability
+import TrafficControlCapability
 from cirque.nodes.dockernode import DockerNode
 from cirque.nodes.wifiapnode import WiFiAPNode
 
