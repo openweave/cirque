@@ -18,8 +18,8 @@ import json
 from cirque.common.cirquelog import CirqueLog
 from cirque.common.utils import host_run, manipulate_iptable_src_dst_rule
 
-IPV6_SUBNET = "2001:db8:1::/64"
-IPV6_GATEWAY = "2001:db8:1::1"
+IPV6_SUBNET = "2001:470:9a1a::/48"
+IPV6_GATEWAY = "2001:470:9a1a::1"
 
 class HomeLan:
 
