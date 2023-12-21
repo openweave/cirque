@@ -17,6 +17,8 @@ import subprocess
 import shutil
 from threading import Lock
 
+from cirque.common.cirquelog import CirqueLog
+from cirque.common.taskrunner import TaskRunner
 from cirque.connectivity.socatpipepair import SocatPipePair
 
 
@@ -39,6 +41,7 @@ class ThreadSimPipe:
     self.radio_fd = None
     self.radio_process = None
     self.petition_id = petition_id
+    self.logger = CirqueLog.get_cirque_logger(self.__class__.__name__)
     if rcp:
       self.radio_command = 'ot-rcp'
     else:
@@ -51,11 +54,14 @@ class ThreadSimPipe:
     self.radio_fd = os.open(self.pipe_path_for_ncp, os.O_RDWR)
     env = os.environ
     env['PORT_OFFSET'] = str(self.petition_id * self.__THREAD_GROUP_SIZE)
-    self.radio_process = subprocess.Popen(
-        [self.radio_command, '{}'.format(self.node_id)],
+    command = [self.radio_command, '{}'.format(self.node_id)]
+    self.logger.info("-> Start virtual OpenThread Radio: command=%s, env=%s", command, env)
+    self.radio_process = TaskRunner.post_task(lambda:subprocess.Popen(
+        command,
         env=env,
         stdout=self.radio_fd,
-        stdin=self.radio_fd)
+        stdin=self.radio_fd,
+        stderr=subprocess.PIPE)).wait()
 
   def close(self):
     if self.radio_fd is not None:

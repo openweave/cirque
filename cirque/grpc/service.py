@@ -29,6 +29,7 @@ import cirque.proto.service_pb2 as service_pb2
 import cirque.proto.service_pb2_grpc as service_pb2_grpc
 
 from cirque.common.cirquelog import CirqueLog
+from cirque.common.taskrunner import TaskRunner
 from cirque.home.home import CirqueHome
 
 logger = None
@@ -191,6 +192,7 @@ def __exit_handler():
   global cirque_service
   for home in cirque_service.homes.values():
     home.destroy_home()
+  taskrunner.TaskRunner.stop()
 
 
 class CirqueService(service_pb2_grpc.CirqueServiceServicer):
@@ -354,6 +356,7 @@ def serve(service_port=50051):
 def main(service_port):
   global logger
   CirqueLog.setup_cirque_logger()
+  TaskRunner.start()
   logger = CirqueLog.get_cirque_logger('grpc_service')
   serve(service_port)
 

@@ -21,6 +21,7 @@ from flask import request
 from flask import Response
 
 from cirque.common.cirquelog import CirqueLog
+from cirque.common.taskrunner import TaskRunner
 from cirque.home.home import CirqueHome
 
 app = Flask(__name__)
@@ -119,8 +120,10 @@ def destroy_homes():
 
 
 # becareful not to remove this part
+atexit.register(lambda: TaskRunner.stop())
 if service_mode:
   atexit.register(destroy_homes)
+TaskRunner.start()
 
 if __name__ == '__main__':
   app.run()
