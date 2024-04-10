@@ -16,7 +16,7 @@ import sys
 import pylint.lint
 import pycodestyle
 
-pylint.lint.Run(sys.argv[1:], do_exit=False)
+pylint.lint.Run(sys.argv[1:], exit=False)
 print()
 print('---------------PEP8---------------')
 pep8style = pycodestyle.StyleGuide(quiet=False)
