@@ -25,7 +25,8 @@ class DockerNode:
                docker_client,
                node_type,
                capabilities=None,
-               base_image=None):
+               base_image=None,
+               entrypoint=None):
     self._client = docker_client
     self.node_type = node_type
     if base_image:
@@ -34,6 +35,7 @@ class DockerNode:
       self.image_name = node_type
     self.container = None
     self.capabilities = [] if capabilities is None else capabilities
+    self.entrypoint = entrypoint
     self.logger = CirqueLog.get_cirque_logger(self.__class__.__name__)
     self.logger.info('Capabilites: {}'.format(
         [c.name for c in self.capabilities]))
@@ -60,6 +62,8 @@ class DockerNode:
     capability_run_args = reduce(merge_capapblity_arg, capability_run_args,
                                  {'cap_add': ['SYS_TIME']})
     kwargs.update(capability_run_args)
+    if self.entrypoint is not None:
+      kwargs['entrypoint'] = self.entrypoint
     self.container = self._client.containers.run(
         self.image_name, detach=True, **kwargs)
     self.logger.info('starting container with image {} args={}'.format(
