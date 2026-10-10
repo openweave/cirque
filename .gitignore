@@ -13,3 +13,5 @@ venv*
 build
 dist
 cirque.egg-info
+.coverage
+cirque/virtual_bt/android/pty_bridge

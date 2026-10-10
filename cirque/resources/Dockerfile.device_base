@@ -1,0 +1,112 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Full container image for Cirque Virtual Home RF simulation and device-base testing.
+# Supports kernel-module-free Virtual Bluetooth (virtbt TCP), Virtual Wi-Fi (wpa_supplicant
+# D-Bus + virtual_wifi TCP), Avahi mDNS, D-Bus, and optional OpenThread Border Router (ot-br-posix).
+
+ARG BASE_IMAGE=ubuntu:24.04
+FROM ${BASE_IMAGE}
+
+ARG INSTALL_OTBR=0
+ARG OT_BR_POSIX_CHECKOUT=main
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PLATFORM=ubuntu
+ENV DOCKER=1
+ENV OT_BR_POSIX_CHECKOUT=${OT_BR_POSIX_CHECKOUT}
+
+RUN mkdir -p /app
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      avahi-daemon \
+      avahi-utils \
+      bluez \
+      ca-certificates \
+      dbus \
+      dhcpcd5 \
+      dnsmasq \
+      ethtool \
+      hostapd \
+      iproute2 \
+      iptables \
+      iputils-ping \
+      iw \
+      libavahi-client3 \
+      libglib2.0-bin \
+      net-tools \
+      procps \
+      psmisc \
+      python3 \
+      python3-dbus \
+      python3-gi \
+      socat \
+      sudo \
+      systemd \
+      systemd-sysv \
+      tcpdump \
+      udev \
+      wireless-tools \
+      wpasupplicant && \
+    if [ "${INSTALL_OTBR}" = "1" ]; then \
+      apt-get install -y --no-install-recommends git gdb ninja-build cmake wget libreadline-dev libncurses-dev && \
+      git init ot-br-posix && \
+      cd ot-br-posix && \
+      git remote add origin https://github.com/openthread/ot-br-posix && \
+      git fetch origin "${OT_BR_POSIX_CHECKOUT}" --depth=1 && \
+      git reset --hard FETCH_HEAD && \
+      git submodule update --init --depth=1 && \
+      INFRA_IF_NAME=eth0 BACKBONE_ROUTER=1 OTBR_MDNS=avahi ./script/bootstrap && \
+      ./script/setup && \
+      cd .. && \
+      rm -rf ot-br-posix && \
+      apt-get purge -y --auto-remove git ninja-build cmake wget; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /run/dbus /var/run/dbus /etc/wpa_supplicant /etc/dbus-1/system.d /dev/virtual_bt && \
+    echo "ctrl_interface=/run/wpa_supplicant" > /etc/wpa_supplicant/wpa_supplicant.conf && \
+    echo "update_config=1" >> /etc/wpa_supplicant/wpa_supplicant.conf && \
+    if [ -f /etc/avahi/avahi-daemon.conf ]; then \
+      sed -i 's/.*enable-dbus=.*/enable-dbus=yes/' /etc/avahi/avahi-daemon.conf && \
+      sed -i 's/.*use-ipv4=.*/use-ipv4=yes/' /etc/avahi/avahi-daemon.conf && \
+      sed -i 's/.*use-ipv6=.*/use-ipv6=yes/' /etc/avahi/avahi-daemon.conf; \
+    fi
+
+RUN cat <<'EOF' > /etc/dbus-1/system.d/cirque-bluetooth.conf
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <policy user="root">
+    <allow own="org.bluez"/>
+    <allow send_destination="org.bluez"/>
+    <allow send_interface="org.bluez.GattCharacteristic1"/>
+    <allow send_interface="org.bluez.GattDescriptor1"/>
+    <allow send_interface="org.freedesktop.DBus.ObjectManager"/>
+    <allow send_interface="org.freedesktop.DBus.Properties"/>
+  </policy>
+  <policy at_console="true">
+    <allow send_destination="org.bluez"/>
+  </policy>
+  <policy context="default">
+    <deny send_destination="org.bluez"/>
+  </policy>
+</busconfig>
+EOF
+
+WORKDIR /
+
+ENTRYPOINT ["/bin/sh", "-c", "mkdir -p /run/dbus && rm -f /run/dbus/pid && dbus-daemon --system --fork && exec sleep infinity"]

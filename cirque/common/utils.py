@@ -28,7 +28,7 @@ class Return:
 def sleep_time(logger, seconds, reason=None):
   if reason:
     reason = 'for ' + reason
-  logger.debug('sleeps {}s {}'.format(seconds, reason))
+  logger.debug('sleeps %ss %s', seconds, reason)
   time.sleep(seconds)
 
 
@@ -44,7 +44,7 @@ def host_run(logger,
     return -1
   exec_command = ' '.join(command) if isinstance(command, list) else command
 
-  logger.debug('CMD RUN: {}'.format(exec_command))
+  logger.debug('CMD RUN: %s', exec_command)
 
   if namespace and 'ip netns exec' not in exec_command:
     exec_command = 'ip netns exec {} '.format(namespace) + exec_command
@@ -57,8 +57,8 @@ def host_run(logger,
   stdout, stderr = process.communicate()
   returncode = process.returncode
   logger.debug('CMD RESULT: \n'
-               'ReturnCode: {},\nStdout: {},\nStdin: {}'.format(
-                   returncode, stdout, stderr))
+               'ReturnCode: %s,\nStdout: %s,\nStdin: %s',
+               returncode, stdout, stderr)
 
   return Return(returncode, stdout, stderr)
 

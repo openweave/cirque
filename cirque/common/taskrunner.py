@@ -49,8 +49,12 @@ class _TaskRunner:
         self.logger = CirqueLog.get_cirque_logger(self.__class__.__name__)
         self.queue_cv = threading.Condition()
         self.queue = queue.Queue()
+        self.running = False
+        self.th = None
 
     def post_task(self, fn) -> Task:
+        if not self.running or self.th is None or not self.th.is_alive():
+            self.start(daemon=True)
         task = Task(fn)
         with self.queue_cv:
             self.queue.put(task)
@@ -58,20 +62,20 @@ class _TaskRunner:
             self.logger.info("Task sent to runner thread.")
         return task
 
-    def start(self):
+    def start(self, daemon: bool = False):
         self.running = True
         self.logger.info("Starting task runner.")
-        self.th = threading.Thread(target=lambda:self._run())
+        self.th = threading.Thread(target=lambda: self._run(), daemon=daemon)
         self.th.start()
         self.logger.info("Task runner started.")
-
 
     def stop(self):
         self.logger.info("Stopping runner thread.")
         with self.queue_cv:
             self.running = False
             self.queue_cv.notify()
-        self.th.join()
+        if self.th is not None and self.th.is_alive():
+            self.th.join()
 
     def _run(self):
         self.logger.info("Task runner running.")
@@ -82,9 +86,11 @@ class _TaskRunner:
                     self.logger.info("Handled task.")
                     taskStart = time.time()
                     task.run()
-                    self.logger.info(f"Task handling duration: {time.time() - taskStart}s")
+                    self.logger.info(
+                        "Task handling duration: %ss", time.time() - taskStart
+                    )
                 except queue.Empty:
-                    self.logger.info(f"No task")
+                    self.logger.info("No task")
                     pass
                 self.queue_cv.wait()
         self.logger.info("Task runner stopped.")

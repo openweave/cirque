@@ -91,11 +91,25 @@ function build_generic_node_docker_image() {
   popd
 }
 
+function build_virtual_rf_node_docker_image() {
+  pushd .
+  cd "cirque/resources"
+  if [[ "${IMAGES}" != *cirque-device-base* && "${IMAGES}" != *cirque-virtual-rf-node* ]]; then
+    # Builds cirque-device-base:latest and cirque-virtual-rf-node:latest.
+    # For full OpenThread Border Router node support, use Dockerfile.device_base with INSTALL_OTBR=1.
+    docker build -t cirque-device-base:latest \
+      -t cirque-virtual-rf-node:latest \
+      -f Dockerfile.virtual_rf_node .
+  fi
+  popd
+}
+
 function main() {
   install_bluez
   install_openthread
   build_wifiap_docker_image
   build_generic_node_docker_image
+  build_virtual_rf_node_docker_image
 }
 
 main

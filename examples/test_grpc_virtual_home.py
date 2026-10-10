@@ -106,10 +106,10 @@ class TestGrpcVirtualHome(unittest.TestCase):
     home_ids = cls.stub.ListCirqueHomes(
         service_pb2.ListCirqueHomesRequest()).home_id
 
-    cls.logger.info('created home ids: {}'.format(home_ids))
+    cls.logger.info('created home ids: %s', home_ids)
 
     for home_id in home_ids:
-      cls.logger.info('stopping home: {}'.format(home_id))
+      cls.logger.info('stopping home: %s', home_id)
       cls.stub.StopCirqueHome(
           service_pb2.StopCirqueHomeRequest(home_id=home_id))
 
@@ -122,7 +122,7 @@ class TestGrpcVirtualHome(unittest.TestCase):
     home_id = self.stub.CreateCirqueHome(
         service_pb2.CreateCirqueHomeRequest()).home_id
 
-    self.logger.info('\nhome id: {} created!'.format(home_id))
+    self.logger.info('\nhome id: %s created!', home_id)
 
     self.assertTrue(
         home_id == self.stub.ListCirqueHomes(
@@ -209,7 +209,7 @@ class TestGrpcVirtualHome(unittest.TestCase):
         if device.device_specification.device_type == 'wifi_ap'
     ][0]
 
-    self.logger.info('\nwifi ap ssid: {}'.format(ssid))
+    self.logger.info('\nwifi ap ssid: %s', ssid)
 
     network_scan_command = 'iwlist wlan0 scanning'
 
@@ -222,8 +222,8 @@ class TestGrpcVirtualHome(unittest.TestCase):
               streaming=False))
 
       ssid_from_dev = re.search(r'\s+ESSID:"(.+)"', ret.output).group(1)
-      self.logger.info('\nssid: {} scanned by\ndevice: {}'.format(
-          ssid_from_dev, device_id))
+      self.logger.info('\nssid: %s scanned by\ndevice: %s',
+                       ssid_from_dev, device_id)
       self.assertTrue(ssid == ssid_from_dev,
                       'ssid from device did not match what is from wifi_ap!!')
 
@@ -245,11 +245,11 @@ class TestGrpcVirtualHome(unittest.TestCase):
                  for device in devices.devices
                  if device.device_specification.device_type == 'wifi_ap'][0]
 
-    self.logger.info('\nwifi ap ssid: {}, psk: {}'.format(ssid, psk))
+    self.logger.info('\nwifi ap ssid: %s, psk: %s', ssid, psk)
 
     for device_id in device_ids:
-      self.logger.info('\ndevice: {}\n connecting to desired ssid: {}'.format(
-          device_id, ssid))
+      self.logger.info('\ndevice: %s\n connecting to desired ssid: %s',
+                       device_id, ssid)
       write_psk_to_wpa_supplicant_config(self.logger, self.stub, home_id,
                                          device_id, ssid, psk)
 
@@ -278,8 +278,7 @@ class TestGrpcVirtualHome(unittest.TestCase):
 
     for device_id in device_ids:
       self.logger.info(
-          '\nrequesting ip address from wifi ap by\ndevice:{}'.format(
-              device_id))
+          '\nrequesting ip address from wifi ap by\ndevice:%s', device_id)
 
       ret = self.stub.ExecuteDeviceCommand(
           service_pb2.ExecuteDeviceCommandRequest(
@@ -292,12 +291,12 @@ class TestGrpcVirtualHome(unittest.TestCase):
           r'wlan0: leased (\d+\.\d+\.\d+\.\d+) for (\d+) seconds',
           ret.output).group(1)
 
-      self.logger.info('\nip address requested: {}'.format(ipaddr))
+      self.logger.info('\nip address requested: %s', ipaddr)
 
       device_addrs.append((device_id, ipaddr))
 
-    self.logger.info('\npinging from device: {} to\ndevice: {}'.format(
-        device_addrs[0][0], device_addrs[1][0]))
+    self.logger.info('\npinging from device: %s to\ndevice: %s',
+                     device_addrs[0][0], device_addrs[1][0])
     ping_command = 'ping -c 3 {}'
 
     ret = self.stub.ExecuteDeviceCommand(
@@ -312,7 +311,7 @@ class TestGrpcVirtualHome(unittest.TestCase):
     self.assertNotEqual(
         loss, '100', 'unable to ping device: {}, no wifi connectivity!!'.format(
             device_addrs[1][1]))
-    self.logger.info('ping loss rate: {}%'.format(loss))
+    self.logger.info('ping loss rate: %s%%', loss)
 
 
 def create_device_from_config():
@@ -324,8 +323,7 @@ def write_psk_to_wpa_supplicant_config(logger, stub, home_id, device_id, ssid,
                                        psk):
 
   logger.info(
-      '\ndevice id: {}\nwriting ssid, psk to wpa_supplicant config'.format(
-          device_id))
+      '\ndevice id: %s\nwriting ssid, psk to wpa_supplicant config', device_id)
 
   write_psk_command = ''.join([
       "sh -c 'wpa_passphrase {} {} >> ".format(ssid, psk),
@@ -342,7 +340,7 @@ def write_psk_to_wpa_supplicant_config(logger, stub, home_id, device_id, ssid,
 
 def kill_existing_wpa_supplicant(logger, stub, home_id, device_id):
 
-  logger.info('\ndevice id: {}\nkill existing wpa_supplicant'.format(device_id))
+  logger.info('\ndevice id: %s\nkill existing wpa_supplicant', device_id)
 
   kill_wpa_supplicant_command = 'killall wpa_supplicant'
 
@@ -357,7 +355,7 @@ def kill_existing_wpa_supplicant(logger, stub, home_id, device_id):
 def start_wpa_supplicant(logger, stub, home_id, device_id):
 
   logger.info(
-      '\ndevice id: {}\nstarting wpa_supplicant on device'.format(device_id))
+      '\ndevice id: %s\nstarting wpa_supplicant on device', device_id)
 
   start_wpa_supplicant_command = ''.join([
       'wpa_supplicant -B -i wlan0 ',

@@ -21,7 +21,7 @@ from cirque.capabilities.xvnccapability import XvncCapability
 @mock.patch('subprocess.Popen')
 class TestXvncCapability(unittest.TestCase):
 
-  def __check_docker_run_args(self, docker_run_args, display_id,
+  def _check_docker_run_args(self, docker_run_args, display_id,
                               docker_display_id):
     self.assertEqual(docker_run_args['environment'],
                      [f'DISPLAY=:{docker_display_id}'])
@@ -30,24 +30,27 @@ class TestXvncCapability(unittest.TestCase):
     dest_path = f'/tmp/.X11-unix/X{docker_display_id}'
     self.assertEqual(docker_run_args['volumes'], [f'{src_path}:{dest_path}'])
 
+  # Backward compatibility alias
+  _TestXvncCapability__check_docker_run_args = _check_docker_run_args
+
   def test_auto_assigned_display_id(self, popen):
     xvnccapability = XvncCapability(display_id=0)
 
     docker_run_args = xvnccapability.get_docker_run_args(None)
     display_id = xvnccapability.description['display_id']
-    self.__check_docker_run_args(docker_run_args, display_id, 0)
+    self._check_docker_run_args(docker_run_args, display_id, 0)
 
   def test_fixed_display_id(self, popen):
     xvnccapability = XvncCapability(display_id=2)
 
     docker_run_args = xvnccapability.get_docker_run_args(None)
-    self.__check_docker_run_args(docker_run_args, 2, 0)
+    self._check_docker_run_args(docker_run_args, 2, 0)
 
   def test_fixed_docker_display_id(self, popen):
     xvnccapability = XvncCapability(display_id=42, docker_display_id=13)
 
     docker_run_args = xvnccapability.get_docker_run_args(None)
-    self.__check_docker_run_args(docker_run_args, 42, 13)
+    self._check_docker_run_args(docker_run_args, 42, 13)
 
 
 if __name__ == '__main__':

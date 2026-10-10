@@ -29,7 +29,7 @@ class IpNameSpace:
     self.ns_interface_name = 'vetp{}{}'.format(bridge.bridge_id, self.ns_id)
     self.ipv4_addr, self.ipv6_addr = map(str, bridge.get_new_device_addr())
 
-  def __setup_veth_pair(self):
+  def _setup_veth_pair(self):
     with IPRoute() as ipr:
       ipr.link(
           'add',
@@ -46,7 +46,7 @@ class IpNameSpace:
           master=self.bridge.bridge_link_id)
       ipr.link('set', index=self.host_interface_id, state='up')
 
-  def __setup_ip_namespace_route(self):
+  def _setup_ip_namespace_route(self):
     ns_interface_id = self.netns.link_lookup(ifname=self.ns_interface_name)[0]
     self.netns.link('set', index=ns_interface_id, state='up')
     self.netns.addr(
@@ -64,8 +64,8 @@ class IpNameSpace:
 
   def open(self):
     self.netns = pyroute2.NetNS(self.namespace_name)
-    self.__setup_veth_pair()
-    self.__setup_ip_namespace_route()
+    self._setup_veth_pair()
+    self._setup_ip_namespace_route()
 
   def close(self):
     if self.host_interface_id is not None:
@@ -79,3 +79,6 @@ class IpNameSpace:
 
   def __del__(self):
     self.close()
+
+  _IpNameSpace__setup_veth_pair = _setup_veth_pair
+  _IpNameSpace__setup_ip_namespace_route = _setup_ip_namespace_route

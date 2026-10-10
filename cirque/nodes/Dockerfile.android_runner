@@ -1,0 +1,29 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    adb \
+    curl \
+    iproute2 \
+    iptables \
+    libasound2 \
+    libc6 \
+    libgl1 \
+    libpulse0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxtst6 \
+    net-tools \
+    procps \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["sleep", "infinity"]

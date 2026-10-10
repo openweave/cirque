@@ -12,25 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from concurrent import futures
-
-import sys
 import atexit
+from concurrent import futures
 import socket
-
-import grpc
-from grpc_status import rpc_status
-from google.rpc import code_pb2, status_pb2
-
-import google.protobuf.empty_pb2 as empty_pb2
-import cirque.proto.capability_pb2 as capability_pb2
-import cirque.proto.device_pb2 as device_pb2
-import cirque.proto.service_pb2 as service_pb2
-import cirque.proto.service_pb2_grpc as service_pb2_grpc
+import sys
 
 from cirque.common.cirquelog import CirqueLog
 from cirque.common.taskrunner import TaskRunner
 from cirque.home.home import CirqueHome
+import cirque.proto.capability_pb2 as capability_pb2
+import cirque.proto.device_pb2 as device_pb2
+import cirque.proto.service_pb2 as service_pb2
+import cirque.proto.service_pb2_grpc as service_pb2_grpc
+import google.protobuf.empty_pb2 as empty_pb2
+from google.rpc import code_pb2, status_pb2
+import grpc
+from grpc_status import rpc_status
 
 logger = None
 
@@ -49,43 +46,56 @@ def convert_to_device_pb(device):
       ),
       device_id=device['id'],
       device_name=device['name'],
-      device_description=device_pb2.DeviceDescription(**describs))
+      device_description=device_pb2.DeviceDescription(**describs),
+  )
   if 'Weave' in device['capability']:
     device_pb.device_specification.weave_capability.CopyFrom(
-        convert_weave_capability_to_pb(device['capability']['Weave']))
+        convert_weave_capability_to_pb(device['capability']['Weave'])
+    )
   if 'Thread' in device['capability']:
     device_pb.device_specification.thread_capability.CopyFrom(
-        convert_thread_capability_to_pb(device['capability']['Thread']))
+        convert_thread_capability_to_pb(device['capability']['Thread'])
+    )
   if 'WiFi' in device['capability']:
     device_pb.device_specification.wifi_capability.CopyFrom(
-        convert_wifi_capability_to_pb(device['capability']['WiFi']))
+        convert_wifi_capability_to_pb(device['capability']['WiFi'])
+    )
   if 'Xvnc' in device['capability']:
     device_pb.device_specification.xvnc_capability.CopyFrom(
-        convert_xvnc_capability_to_pb(device['capability']['Xvnc']))
+        convert_xvnc_capability_to_pb(device['capability']['Xvnc'])
+    )
   if 'Interactive' in device['capability']:
     device_pb.device_specification.interactive_capability.CopyFrom(
         convert_interactive_capability_to_pb(
-            device['capability']['Interactive']))
+            device['capability']['Interactive']
+        )
+    )
   if 'LanAccess' in device['capability']:
     device_pb.device_specification.lan_access_capability.CopyFrom(
-        convert_lan_access_capability_to_pb(device['capability']['LanAccess']))
+        convert_lan_access_capability_to_pb(device['capability']['LanAccess'])
+    )
   if 'Mount' in device['capability']:
     device_pb.device_specification.mount_capability.CopyFrom(
-        convert_mount_capability_to_pb(device['capability']['Mount']))
+        convert_mount_capability_to_pb(device['capability']['Mount'])
+    )
   if 'TrafficControl' in device['capability']:
     device_pb.device_specification.trafficcontrol_capability.CopyFrom(
         convert_trafficcontrol_capability_to_pb(
-            device['capability']['TrafficControl']))
+            device['capability']['TrafficControl']
+        )
+    )
+  if 'Bluetooth' in device['capability']:
+    device_pb.device_specification.bluetooth_capability.CopyFrom(
+        convert_bluetooth_capability_to_pb(device['capability']['Bluetooth'])
+    )
 
   return device_pb
 
 
 def add_weave_capability_to_config(device_config, weave_capability):
   device_config['capability'].append('Weave')
-  device_config['weave_config_file'] = \
-      weave_capability.weave_certificate_path
-  device_config['weave_config_target_path'] = \
-      weave_capability.target_path
+  device_config['weave_config_file'] = weave_capability.weave_certificate_path
+  device_config['weave_config_target_path'] = weave_capability.target_path
 
 
 def convert_weave_capability_to_pb(capability_description):
@@ -111,10 +121,60 @@ def convert_thread_capability_to_pb(capability_description):
 
 def add_wifi_capability_to_config(device_config, wifi_capability):
   device_config['capability'].append('WiFi')
+  if wifi_capability.use_virtual_wifi_tcp:
+    device_config['use_virtual_wifi_tcp'] = True
+  if wifi_capability.control_port:
+    device_config['wifi_control_port'] = wifi_capability.control_port
+  if wifi_capability.mgmt_port:
+    device_config['wifi_mgmt_port'] = wifi_capability.mgmt_port
+  if wifi_capability.data_port:
+    device_config['wifi_data_port'] = wifi_capability.data_port
 
 
 def convert_wifi_capability_to_pb(capability_description):
   capability_pb = capability_pb2.WiFiCapability()
+  if isinstance(capability_description, dict):
+    capability_pb.use_virtual_wifi_tcp = (
+        capability_description.get('mode') == 'virtual_wifi_tcp'
+    )
+    capability_pb.control_port = int(
+        capability_description.get('control_port', 0)
+    )
+    capability_pb.mgmt_port = int(capability_description.get('mgmt_port', 0))
+    capability_pb.data_port = int(capability_description.get('data_port', 0))
+    capability_pb.mac_addr = str(capability_description.get('mac_addr', ''))
+    capability_pb.station_id = str(capability_description.get('station_id', ''))
+  return capability_pb
+
+
+def add_bluetooth_capability_to_config(device_config, bluetooth_capability):
+  device_config['capability'].append('Bluetooth')
+  if bluetooth_capability.num_btvirts:
+    device_config['num_btvirts'] = bluetooth_capability.num_btvirts
+  if bluetooth_capability.use_virtual_bt_tcp:
+    device_config['use_virtual_bt_tcp'] = True
+  if bluetooth_capability.control_port:
+    device_config['bt_control_port'] = bluetooth_capability.control_port
+  if bluetooth_capability.hci_port:
+    device_config['bt_hci_port'] = bluetooth_capability.hci_port
+  if bluetooth_capability.phy_port:
+    device_config['bt_phy_port'] = bluetooth_capability.phy_port
+  if bluetooth_capability.bd_addr:
+    device_config['bd_addr'] = bluetooth_capability.bd_addr
+
+
+def convert_bluetooth_capability_to_pb(capability_description):
+  capability_pb = capability_pb2.BluetoothCapability()
+  if isinstance(capability_description, dict):
+    capability_pb.use_virtual_bt_tcp = (
+        capability_description.get('mode') == 'virtual_bt_tcp'
+    )
+    capability_pb.control_port = int(
+        capability_description.get('control_port', 0)
+    )
+    capability_pb.hci_port = int(capability_description.get('hci_port', 0))
+    capability_pb.phy_port = int(capability_description.get('phy_port', 0))
+    capability_pb.bd_addr = str(capability_description.get('bd_addr', ''))
   return capability_pb
 
 
@@ -133,19 +193,22 @@ def convert_xvnc_capability_to_pb(capability_description):
   return capability_pb
 
 
-def add_trafficcontrol_capability_to_config(device_config,
-                                            trafficcontrol_capability):
+def add_trafficcontrol_capability_to_config(
+    device_config, trafficcontrol_capability
+):
   device_config['capability'].append('TrafficControl')
   device_config['traffic_control'] = {
       'latencyMs': trafficcontrol_capability.latency_ms,
-      'loss': trafficcontrol_capability.loss_rate
+      'loss': trafficcontrol_capability.loss_rate,
   }
 
 
 def convert_trafficcontrol_capability_to_pb(capability_description):
   capability_pb = capability_pb2.TrafficControlCapability()
-  capability_pb.latency_ms = capability_description['latencyMs']
-  capability_pb.loss_rate = capability_description['loss']
+  capability_pb.latency_ms = capability_description.get(
+      'latencyMs', capability_description.get('latency', 0)
+  )
+  capability_pb.loss_rate = capability_description.get('loss', 0)
   return capability_pb
 
 
@@ -181,41 +244,56 @@ def convert_mount_capability_to_pb(capability_description):
   mount_pb = capability_pb2.MountCapability()
   for host_path, target_path in capability_description['mount_pairs']:
     mount_pb.mount_pairs.append(
-        capability_pb2.MountPair(host_path=host_path, target_path=target_path))
+        capability_pb2.MountPair(host_path=host_path, target_path=target_path)
+    )
   return mount_pb
 
 
 cirque_service = None
 
 
-def __exit_handler():
+def _exit_handler():
   global cirque_service
   for home in cirque_service.homes.values():
     home.destroy_home()
-  taskrunner.TaskRunner.stop()
+  TaskRunner.stop()
+
+
+__exit_handler = _exit_handler
 
 
 class CirqueService(service_pb2_grpc.CirqueServiceServicer):
 
   def __init__(self):
     self.homes = dict()
-    self.__next_home_id = 0
+    self._next_home_id = 0
+
+  @property
+  def _CirqueService__next_home_id(self):
+    return self._next_home_id
+
+  @_CirqueService__next_home_id.setter
+  def _CirqueService__next_home_id(self, val):
+    self._next_home_id = val
 
   def CreateCirqueHome(self, _, context):
-    home = CirqueHome(str(self.__next_home_id))
-    self.__next_home_id += 1
+    home = CirqueHome(str(self._next_home_id))
+    self._next_home_id += 1
     self.homes[home.home_id] = home
     return service_pb2.CreateCirqueHomeResponse(home_id=home.home_id)
 
   def CreateCirqueDevice(self, request, context):
     if request.home_id is None or request.home_id not in self.homes:
       context.abort_with_status(
-          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND)))
+          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND))
+      )
       return service_pb2.CreateCirqueDeviceResponse()
     elif request.specification is None:
       context.abort_with_status(
           rpc_status.to_status(
-              status_pb2.Status(code=code_pb2.INVALID_ARGUMENT)))
+              status_pb2.Status(code=code_pb2.INVALID_ARGUMENT)
+          )
+      )
       return service_pb2.CreateCirqueDeviceResponse()
     else:
       specification = request.specification
@@ -226,58 +304,76 @@ class CirqueService(service_pb2_grpc.CirqueServiceServicer):
       if specification.base_image:
         device_config['base_image'] = specification.base_image
       if specification.WhichOneof('optional_weave_capability'):
-        add_weave_capability_to_config(device_config,
-                                       specification.weave_capability)
+        add_weave_capability_to_config(
+            device_config, specification.weave_capability
+        )
       if specification.WhichOneof('optional_thread_capability'):
-        add_thread_capability_to_config(device_config,
-                                        specification.thread_capability)
+        add_thread_capability_to_config(
+            device_config, specification.thread_capability
+        )
       if specification.WhichOneof('optional_wifi_capability'):
-        add_wifi_capability_to_config(device_config,
-                                      specification.wifi_capability)
+        add_wifi_capability_to_config(
+            device_config, specification.wifi_capability
+        )
       if specification.WhichOneof('optional_xvnc_capability'):
-        add_xvnc_capability_to_config(device_config,
-                                      specification.xvnc_capability)
+        add_xvnc_capability_to_config(
+            device_config, specification.xvnc_capability
+        )
       if specification.WhichOneof('optional_interactive_capability'):
         add_interactive_capability_to_config(
-            device_config, specification.interactive_capability)
+            device_config, specification.interactive_capability
+        )
       if specification.WhichOneof('optional_lan_access_capability'):
-        add_lan_access_capability_to_config(device_config,
-                                            specification.lan_access_capability)
+        add_lan_access_capability_to_config(
+            device_config, specification.lan_access_capability
+        )
       if specification.WhichOneof('optional_mount_capability'):
-        add_mount_capability_to_config(device_config,
-                                       specification.mount_capability)
+        add_mount_capability_to_config(
+            device_config, specification.mount_capability
+        )
       if specification.WhichOneof('optional_trafficcontrol_capability'):
         add_trafficcontrol_capability_to_config(
-            device_config, specification.trafficcontrol_capability)
+            device_config, specification.trafficcontrol_capability
+        )
+      if specification.WhichOneof('optional_bluetooth_capability'):
+        add_bluetooth_capability_to_config(
+            device_config, specification.bluetooth_capability
+        )
 
       device_id = self.homes[request.home_id].add_device(device_config)
       if device_id is None:
         context.abort_with_status(
-            rpc_status.to_status(status_pb2.Status(code=code_pb2.INTERNAL)))
+            rpc_status.to_status(status_pb2.Status(code=code_pb2.INTERNAL))
+        )
         return service_pb2.CreateCirqueDeviceResponse()
       else:
         device = self.homes[request.home_id].get_device_state(device_id)
         return service_pb2.CreateCirqueDeviceResponse(
-            device=convert_to_device_pb(device))
+            device=convert_to_device_pb(device)
+        )
 
   def ExecuteDeviceCommand(self, request, context):
-    if request.home_id is None or \
-       request.home_id not in self.homes or \
-       request.device_id is None or \
-       request.device_id not in self.homes[request.home_id].devices:
+    if (
+        request.home_id is None
+        or request.home_id not in self.homes
+        or request.device_id is None
+        or request.device_id not in self.homes[request.home_id].devices
+    ):
       context.abort_with_status(
-          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND)))
+          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND))
+      )
       return service_pb2.ExecuteDeviceCommandResponse()
 
     ret = self.homes[request.home_id].execute_device_cmd(
-        cmd=request.command,
-        node_id=request.device_id,
-        stream=request.streaming)
+        cmd=request.command, node_id=request.device_id, stream=request.streaming
+    )
 
     if ret.exit_code != 0:
       context.abort_with_status(
           rpc_status.to_status(
-              status_pb2.Status(code=code_pb2.ABORTED, message=ret.output)))
+              status_pb2.Status(code=code_pb2.ABORTED, message=ret.output)
+          )
+      )
       return service_pb2.ExecuteDeviceCommandResponse()
 
     return service_pb2.ExecuteDeviceCommandResponse(output=ret.output)
@@ -288,63 +384,75 @@ class CirqueService(service_pb2_grpc.CirqueServiceServicer):
   def ListCirqueHomeDevices(self, request, context):
     if request.home_id is None or request.home_id not in self.homes:
       context.abort_with_status(
-          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND)))
+          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND))
+      )
       return service_pb2.ListCirqueHomeDevicesResponse()
     devices = self.homes[request.home_id].get_home_devices().values()
     device_pbs = [convert_to_device_pb(d) for d in devices]
     return service_pb2.ListCirqueHomeDevicesResponse(devices=device_pbs)
 
   def QueryCirqueDevice(self, request, context):
-    if request.home_id is None or \
-       request.home_id not in self.homes or \
-       request.device_id is None or \
-       request.device_id not in self.homes[request.home_id].devices:
+    if (
+        request.home_id is None
+        or request.home_id not in self.homes
+        or request.device_id is None
+        or request.device_id not in self.homes[request.home_id].devices
+    ):
       context.abort_with_status(
-          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND)))
+          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND))
+      )
       return service_pb2.QueryCirqueDeviceResponse()
     device = self.homes[request.home_id].get_device_state(request.device_id)
     return service_pb2.QueryCirqueDeviceResponse(
-        device=convert_to_device_pb(device))
+        device=convert_to_device_pb(device)
+    )
 
   def StopCirqueDevice(self, request, context):
-    if request.home_id is None or \
-       request.home_id not in self.homes or \
-       request.device_id is None or \
-       request.device_id not in self.homes[request.home_id].devices:
+    if (
+        request.home_id is None
+        or request.home_id not in self.homes
+        or request.device_id is None
+        or request.device_id not in self.homes[request.home_id].devices
+    ):
       context.abort_with_status(
-          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND)))
+          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND))
+      )
     else:
       self.homes[request.home_id].stop_device(request.device_id)
     return empty_pb2.Empty()
 
   def StopCirqueHome(self, request, context):
-    if request.home_id is None or \
-       request.home_id not in self.homes:
+    if request.home_id is None or request.home_id not in self.homes:
       context.abort_with_status(
-          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND)))
+          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND))
+      )
     else:
       self.homes[request.home_id].destroy_home()
       del self.homes[request.home_id]
     return empty_pb2.Empty()
 
   def GetCirqueDeviceLog(self, request, context):
-    if request.home_id is None or \
-       request.home_id not in self.homes or \
-       request.device_id is None or \
-       request.device_id not in self.homes[request.home_id].devices:
+    if (
+        request.home_id is None
+        or request.home_id not in self.homes
+        or request.device_id is None
+        or request.device_id not in self.homes[request.home_id].devices
+    ):
       context.abort_with_status(
-          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND)))
+          rpc_status.to_status(status_pb2.Status(code=code_pb2.NOT_FOUND))
+      )
       return service_pb2.GetCirqueDeviceLogResponse()
     tail = request.tail if request.tail is not None else 'all'
     log = self.homes[request.home_id].get_device_log(
-        request.device_id, tail=tail)
+        request.device_id, tail=tail
+    )
     return service_pb2.GetCirqueDeviceLogResponse(log=log)
 
 
 def serve(service_port=50051):
   global cirque_service
   cirque_service = CirqueService()
-  atexit.register(__exit_handler)
+  atexit.register(_exit_handler)
   server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
   service_pb2_grpc.add_CirqueServiceServicer_to_server(cirque_service, server)
   logger.info('running grpc service on port: {}'.format(service_port))
@@ -371,5 +479,5 @@ if __name__ == '__main__':
     try:
       s.bind(('', service_port))
     except (OSError, PermissionError) as err:
-      raise RuntimeError('{}:{!r}'.format(service_port, err))
+      raise RuntimeError('{}:{!r}'.format(service_port, err)) from err
   main(service_port)
