@@ -1,0 +1,48 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Lightweight container image for Cirque Virtual Home E2E testing with
+# kernel-module-free Virtual Bluetooth (virtbt TCP) and Virtual Wi-Fi
+# (virtual_wifi TCP + fi.w1.wpa_supplicant1 D-Bus).
+
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      avahi-daemon \
+      avahi-utils \
+      bluez \
+      dbus \
+      dhcpcd5 \
+      dnsmasq \
+      ethtool \
+      iproute2 \
+      iptables \
+      iputils-ping \
+      libglib2.0-bin \
+      psmisc \
+      python3 \
+      python3-dbus \
+      python3-gi \
+      socat \
+      wireless-tools \
+      wpasupplicant && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /run/dbus /var/run/dbus /etc/wpa_supplicant && \
+    echo "ctrl_interface=/run/wpa_supplicant" > /etc/wpa_supplicant/wpa_supplicant.conf && \
+    echo "update_config=1" >> /etc/wpa_supplicant/wpa_supplicant.conf
+
+ENTRYPOINT ["/bin/sh", "-c", "mkdir -p /run/dbus && rm -f /run/dbus/pid && dbus-daemon --system --fork && exec sleep infinity"]

@@ -59,11 +59,11 @@ function virtual_thread_clean() {
 
 function create_virtual_environment() {
   echo "creating python3 virtual environment for tests..."
-  python3 -m venv "${VENV}"
+  python3 -m venv --system-site-packages "${VENV}"
   source "${VENV}"/bin/activate
   pip install --upgrade pip
   pip install --upgrade setuptools
-  pip install wheel
+  pip install wheel coverage
   deactivate
 }
 
@@ -123,17 +123,47 @@ function run_grpc_clean() {
   virtual_thread_clean
 }
 
+function _cleanup_virtual_bt_runtime_dir() {
+  if [ -n "${_cirque_bt_tmp_dir:-}" ]; then
+    rm -rf "${_cirque_bt_tmp_dir}"
+  fi
+  unset CIRQUE_VIRTUAL_BT_RUNTIME_DIR _cirque_bt_tmp_dir
+  trap - RETURN
+}
+
 function run_unit_tests() {
   set -e
   echo "running unit tests.."
   source "${VENV}"/bin/activate
   export PATH="${PATH}":"${OPENTHREAD_DIR}"/output/x86_64-unknown-linux-gnu/bin/
+  _cirque_bt_tmp_dir="$(mktemp -d)"
+  export CIRQUE_VIRTUAL_BT_RUNTIME_DIR="${_cirque_bt_tmp_dir}"
+  trap _cleanup_virtual_bt_runtime_dir EXIT RETURN
+  python3 -m coverage run --source=cirque/virtual_wifi,cirque/home \
+    -m unittest -v \
+    cirque/virtual_wifi/test_virtual_wifi_server.py \
+    cirque/virtual_wifi/test_virtual_wifi_server_edges.py \
+    cirque/virtual_wifi/test_docker_wifi_bridge.py \
+    cirque/virtual_wifi/test_wpa2_handshake.py \
+    cirque/virtual_wifi/test_wpa_dbus_daemon_edges.py \
+    cirque/virtual_wifi/test_virtual_wifi_pcap.py \
+    cirque/virtual_wifi/test_lease.py \
+    cirque/home/test_home_ap_ordering.py \
+    cirque/home/test_virtual_home_topology.py
+  python3 -m coverage report \
+    --include="*/cirque/virtual_wifi/*,*/cirque/home/virtual_home_topology.py,*/cirque/home/__init__.py" \
+    --omit="*/test_*" --fail-under=95 -m
   python3 cirque/capabilities/test/test_mount_capability.py
   python3 cirque/capabilities/test/test_trafficcontrol_capability.py
   python3 cirque/capabilities/test/test_xvnc_capability.py
-  # python3 cirque/capabilities/test/test_wifi_capability.py
+  python3 cirque/capabilities/test/test_bluetooth_capability.py
+  python3 cirque/common/test_docker_transport.py
+  python3 -m unittest -v cirque/capabilities/test/test_wifi_capability.py
+  python3 -m unittest -v examples/test_virtual_home_ble_wifi_e2e.py
+  python3 examples/run_virtual_home_interactive.py --verify-first --non-interactive
   # python3 cirque/home/test/test_home.py
   deactivate
+  _cleanup_virtual_bt_runtime_dir
 }
 
 function main() {

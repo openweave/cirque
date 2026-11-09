@@ -29,6 +29,12 @@ message ThreadCapability {
 }
 
 message WiFiCapability {
+  bool use_virtual_wifi_tcp = 1;
+  int32 control_port = 2;
+  int32 mgmt_port = 3;
+  int32 data_port = 4;
+  string mac_addr = 5;
+  string station_id = 6;
 }
 
 message XvncCapability {
@@ -57,3 +63,13 @@ message TrafficControlCapability {
   int32 latency_ms = 1;
   int32 loss_rate = 2;
 }
+
+message BluetoothCapability {
+  int32 num_btvirts = 1;
+  bool use_virtual_bt_tcp = 2;
+  int32 control_port = 3;
+  int32 hci_port = 4;
+  int32 phy_port = 5;
+  string bd_addr = 6;
+}
+

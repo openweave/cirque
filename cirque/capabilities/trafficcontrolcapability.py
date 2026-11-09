@@ -34,6 +34,7 @@ class TrafficControlCapability(BaseCapability):
   def description(self):
     return {
         "latency": self.latencyMs,
+        "latencyMs": self.latencyMs,
         "loss": self.loss,
     }
 
@@ -47,9 +48,31 @@ class TrafficControlCapability(BaseCapability):
     if self.loss > 0:
       command += ["loss", "{}%".format(self.loss)]
     if command:
-      docker_node.container.exec_run(
-          " ".join(["tc", "qdisc", "add", "dev", "eth0", "root", "netem"] +
-                   command))
+      res = docker_node.container.exec_run(
+          " ".join(
+              ["tc", "qdisc", "replace", "dev", "eth0", "root", "netem"]
+              + command
+          )
+      )
+      exit_code = (
+          res.exit_code
+          if hasattr(res, "exit_code")
+          else (res[0] if isinstance(res, tuple) and len(res) > 0 else 0)
+      )
+      output = getattr(
+          res,
+          "output",
+          res[1] if isinstance(res, tuple) and len(res) > 1 else b"",
+      )
+      if isinstance(exit_code, int) and exit_code != 0:
+        raise RuntimeError(
+            "Failed to configure tc netem (exit={}): {}".format(
+                exit_code, output
+            )
+        )
 
   def disable_capability(self, docker_node):
-    pass
+    container = getattr(docker_node, "container", None)
+    if container is not None:
+      container.exec_run("tc qdisc del dev eth0 root")
+

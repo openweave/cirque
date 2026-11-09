@@ -17,8 +17,13 @@ import logging
 import unittest
 
 from cirque.common.cirquelog import CirqueLog
+from cirque.common.isolated_runtime_dirs import isolate_virtual_runtime_dirs
 from cirque.home.home import CirqueHome
 from cirque.common.utils import sleep_time, host_run
+
+
+def setUpModule():
+  unittest.addModuleCleanup(isolate_virtual_runtime_dirs())
 
 
 class TestHome(unittest.TestCase):
@@ -59,10 +64,10 @@ class TestHome(unittest.TestCase):
     self.assertIsNotNone(generic_node_id)
     self.assertIsNotNone(wifi_ap_id)
     sleep_time(self.home.logger, 20, 'waiting for processes to be launched')
-    self.__verify_process_in_container(generic_node_id, 'otbr-agent')
-    self.__verify_process_in_container(generic_node_id, 'wpa_supplicant')
+    self._verify_process_in_container(generic_node_id, 'otbr-agent')
+    self._verify_process_in_container(generic_node_id, 'wpa_supplicant')
     if self.weave_crt_path is not None:
-      self.__verify_process_in_container(generic_node_id, 'nldaemon')
+      self._verify_process_in_container(generic_node_id, 'nldaemon')
 
   def test_002_add_device(self):
     device_config = {
@@ -75,10 +80,10 @@ class TestHome(unittest.TestCase):
       device_config['weave_config_file'] = self.weave_crt_path
     node_id = self.home.add_device(device_config)
     self.assertIsNotNone(node_id)
-    self.home.logger.info('{}'.format(device_config))
+    self.home.logger.info('%s', device_config)
     sleep_time(self.home.logger, 20, 'waiting for processes to be launched')
-    self.__verify_process_in_container(node_id, 'otbr-agent')
-    self.__verify_process_in_container(node_id, 'wpa_supplicant')
+    self._verify_process_in_container(node_id, 'otbr-agent')
+    self._verify_process_in_container(node_id, 'wpa_supplicant')
 
   def test_003_destroy_home(self):
     self.home.destroy_home()
@@ -106,9 +111,9 @@ class TestHome(unittest.TestCase):
         home.home['devices'][device1_id].description['ipv4_addr']
     self.assertEqual(
         host_run(logger, '{} {}'.format(ping_cmd, device0_ip)).returncode, 0)
-    self.__verify_ping_in_container(
+    self._verify_ping_in_container(
         device0_id, device1_ip, ping_cmd=ping_cmd, should_succeed=False)
-    self.__verify_ping_in_container(
+    self._verify_ping_in_container(
         device0_id, '8.8.8.8', ping_cmd=ping_cmd, should_succeed=True)
     internal_node_id = home.add_device({
         'type': 'generic_node_image',
@@ -119,15 +124,15 @@ class TestHome(unittest.TestCase):
     self.assertEqual(
         host_run(logger, '{} {}'.format(ping_cmd, internal_node_ip)).returncode,
         0)
-    self.__verify_ping_in_container(
+    self._verify_ping_in_container(
         internal_node_id, '8.8.8.8', ping_cmd=ping_cmd, should_succeed=False)
     home.destroy_home()
 
-  def __verify_ping_in_container(self,
-                                 node_id,
-                                 address,
-                                 ping_cmd='ping -c 1',
-                                 should_succeed=True):
+  def _verify_ping_in_container(self,
+                                node_id,
+                                address,
+                                ping_cmd='ping -c 1',
+                                should_succeed=True):
     docker_client = self.home.docker_client
     container = docker_client.containers.get(node_id)
     ret = container.exec_run(' '.join([ping_cmd, address]))
@@ -136,7 +141,7 @@ class TestHome(unittest.TestCase):
     else:
       self.assertNotEqual(ret.exit_code, 0)
 
-  def __verify_process_in_container(self, node_id, process_name):
+  def _verify_process_in_container(self, node_id, process_name):
     docker_client = self.home.docker_client
     container = docker_client.containers.get(node_id)
     self.assertIsNotNone(container)
@@ -144,6 +149,9 @@ class TestHome(unittest.TestCase):
     target_process = next(
         p for p in processes if p[-1].find(process_name) != -1)
     self.assertIsNotNone(target_process)
+
+  _TestHome__verify_ping_in_container = _verify_ping_in_container
+  _TestHome__verify_process_in_container = _verify_process_in_container
 
 
 if __name__ == '__main__':

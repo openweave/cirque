@@ -56,6 +56,10 @@ message DeviceSpecification {
   oneof optional_trafficcontrol_capability {
     TrafficControlCapability trafficcontrol_capability = 10;
   }
+
+  oneof optional_bluetooth_capability {
+    BluetoothCapability bluetooth_capability = 11;
+  }
 }
 
 message DeviceDescription {

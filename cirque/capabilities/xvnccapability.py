@@ -28,24 +28,28 @@ class XvncCapability(BaseCapability):
     self.__display_id = display_id
     self.__docker_display_id = docker_display_id
     self.__xvnc_process = None
-    self.__launch_xvnc_server()
+    self._launch_xvnc_server()
 
-  def __launch_xvnc_server(self):
+  def _launch_xvnc_server(self):
     xvnc_args = ['Xvnc', '--SecurityTypes=None']
     if self.__display_id == 0:
-      self.__display_id = self.__get_next_display_id()
+      self.__display_id = self._get_next_display_id()
     if self.localhost:
       xvnc_args.append('-localhost')
     xvnc_args.append(':{}'.format(self.__display_id))
     self.xvnc_proces = subprocess.Popen(xvnc_args)
 
-  def __get_next_display_id(self):
+  def _get_next_display_id(self):
     if not os.path.exists(self.X_SOCKET_PATH) or \
        len(os.listdir(self.X_SOCKET_PATH)) == 0:
       return 0
     x_server_ids = glob.glob(os.path.join(self.X_SOCKET_PATH, 'X*'))
     x_server_ids = [int(os.path.basename(f)[1:]) for f in x_server_ids]
     return max(x_server_ids) + 1
+
+  # Backward compatibility aliases for double-underscore methods
+  _XvncCapability__launch_xvnc_server = _launch_xvnc_server
+  _XvncCapability__get_next_display_id = _get_next_display_id
 
   @property
   def name(self):

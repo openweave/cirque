@@ -21,8 +21,13 @@ import cirque.common.utils as utils
 
 from cirque.common.cirquelog import CirqueLog
 from cirque.capabilities.wificapability import WiFiCapability
+from cirque.common.isolated_runtime_dirs import isolate_virtual_runtime_dirs
 from cirque.nodes.dockernode import DockerNode
 from cirque.nodes.wifiapnode import WiFiAPNode
+
+
+def setUpModule():
+  unittest.addModuleCleanup(isolate_virtual_runtime_dirs())
 
 
 class TestWiFiFeature(unittest.TestCase):
@@ -59,16 +64,16 @@ class TestWiFiFeature(unittest.TestCase):
 
   def test_002_connect_to_desired_wifi_network(self):
     print('')
-    self.__connect_to_desired_wifi(self.generic_node, self.ap_ssid, self.ap_psk)
+    self._connect_to_desired_wifi(self.generic_node, self.ap_ssid, self.ap_psk)
 
     self.assertTrue(
         hasattr(self.generic_node, 'wifi_ipv4') and self.generic_node.wifi_ipv4)
 
   def test_003_check_wifi_connectivity(self):
     print('')
-    self.__check_wifi_connectivity(self.generic_node)
+    self._check_wifi_connectivity(self.generic_node)
 
-  def __request_ip_addr_from_dhcp_server(self, docker_node):
+  def _request_ip_addr_from_dhcp_server(self, docker_node):
     ret = docker_node.container.exec_run('dhcpcd wlan0')
     ipaddr = re.search(rb'wlan0: leased (\d+\.\d+\.\d+\.\d+) for (\d+) seconds',
                        ret.output)
@@ -77,12 +82,12 @@ class TestWiFiFeature(unittest.TestCase):
     default_route = re.search(
         rb'wlan0: adding default route via (\d+\.\d+\.\d+\.\d+)', ret.output)
     self.assertIsNotNone(default_route)
-    docker_node.logger.info('Successfully requested ip: {} from: {}'.format(
-        docker_node.wifi_ipv4,
-        default_route.group(1).decode('utf-8')))
+    docker_node.logger.info('Successfully requested ip: %s from: %s',
+                            docker_node.wifi_ipv4,
+                            default_route.group(1).decode('utf-8'))
 
-  def __connect_to_desired_wifi(self, docker_node, ssid, psk):
-    docker_node.logger.info('connecting to desired ssid: {}'.format(ssid))
+  def _connect_to_desired_wifi(self, docker_node, ssid, psk):
+    docker_node.logger.info('connecting to desired ssid: %s', ssid)
     docker_node.logger.info('flushing wlan0 ip address...')
     ret = docker_node.container.exec_run("sh -c 'wpa_passphrase {} {} >> \
                 /etc/wpa_supplicant/wpa_supplicant.conf'".format(ssid, psk))
@@ -90,20 +95,26 @@ class TestWiFiFeature(unittest.TestCase):
     ret = self.wifi_capability.start_wpa_supplicant_service(docker_node)
     self.assertEqual(ret.exit_code, 0)
     utils.sleep_time(docker_node.logger, 2, 'restart wpa_supplicant')
-    self.__request_ip_addr_from_dhcp_server(docker_node)
+    self._request_ip_addr_from_dhcp_server(docker_node)
 
-  def __check_wifi_connectivity(self, docker_node):
+  def _check_wifi_connectivity(self, docker_node):
     dhcpserver = docker_node.wifi_ipv4[:docker_node.wifi_ipv4.rfind('.')] + '.1'
     docker_node.logger.info(
-        'checking connectivity with dhcp server: {}'.format(dhcpserver))
+        'checking connectivity with dhcp server: %s', dhcpserver)
     ret = docker_node.container.exec_run('ping -c 3 {}'.format(dhcpserver))
     loss_num = re.search(rb'(\d+)% packet loss', ret.output)
     docker_node.logger.info(ret.output.rstrip().split(b'\n')[1])
     if loss_num.group(1) == b'100':
       self.fail('unable to ping dhcp server, no wifi connectivity!!')
     docker_node.logger.info(
-        '{}% packet loss, connectivity to dhcp server is good!!'.format(
-            loss_num.group(1).decode('utf-8')))
+        '%s%% packet loss, connectivity to dhcp server is good!!',
+        loss_num.group(1).decode('utf-8'))
+
+  _TestWiFiFeature__request_ip_addr_from_dhcp_server = (
+      _request_ip_addr_from_dhcp_server
+  )
+  _TestWiFiFeature__connect_to_desired_wifi = _connect_to_desired_wifi
+  _TestWiFiFeature__check_wifi_connectivity = _check_wifi_connectivity
 
 
 if __name__ == '__main__':
