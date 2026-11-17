@@ -42,16 +42,44 @@ class BluezGattPeripheralMixin:
     with self.docker_manager._lock:  # pylint: disable=protected-access
       return build_managed_objects_dict(self.docker_manager.adapter_bridges)
 
-  def _emit_gatt_tree_added(self, base_path: str, objs: Dict[str, Any]) -> None:
+  def _mark_device_announced(self, dev_path: str) -> bool:
+    """Records dev_path as announced; returns False if it already was.
+
+    BlueZ emits InterfacesAdded for a Device1 object once, when it is
+    created. Re-announcing it makes GDBusObjectManagerClient replace the
+    client's Device1 proxy, dropping any state attached to it.
+    """
+    lock = self.__dict__.setdefault('_announced_lock', threading.Lock())
+    with lock:
+      announced = self.__dict__.setdefault('_announced_dev_paths', set())
+      if dev_path in announced:
+        return False
+      announced.add(dev_path)
+      return True
+
+  def _forget_announced_devices(self) -> None:
+    """Lets every device be announced again, e.g. after a reset."""
+    with self.__dict__.setdefault('_announced_lock', threading.Lock()):
+      self.__dict__.pop('_announced_dev_paths', None)
+
+  def _emit_gatt_tree_added(
+      self,
+      base_path: str,
+      objs: Dict[str, Any],
+      include_device_path: bool = True,
+  ) -> None:
     """Emits InterfacesAdded for a device and its GATT service/char paths."""
     from gi.repository import GLib  # pylint: disable=g-import-not-at-top
 
-    for path in (
-        base_path,
+    paths = [
         f'{base_path}/service00',
         f'{base_path}/service00/char00',
         f'{base_path}/service00/char01',
-    ):
+    ]
+    if include_device_path and base_path in objs:
+      paths.insert(0, base_path)
+      self._mark_device_announced(base_path)
+    for path in paths:
       if path in objs:
         self._emit_all(
             '/',
@@ -302,14 +330,15 @@ class BluezGattPeripheralMixin:
 
       objs = self._build_managed_objects_dict()
       if periph_dev_path in objs:
-        self._emit_all(
-            '/',
-            'org.freedesktop.DBus.ObjectManager',
-            'InterfacesAdded',
-            GLib.Variant(
-                '(oa{sa{sv}})', (periph_dev_path, objs[periph_dev_path])
-            ),
-        )
+        if self._mark_device_announced(periph_dev_path):
+          self._emit_all(
+              '/',
+              'org.freedesktop.DBus.ObjectManager',
+              'InterfacesAdded',
+              GLib.Variant(
+                  '(oa{sa{sv}})', (periph_dev_path, objs[periph_dev_path])
+              ),
+          )
         self._emit_all(
             periph_dev_path,
             'org.freedesktop.DBus.Properties',
@@ -440,7 +469,8 @@ class BluezGattPeripheralMixin:
         self._acquire_peripheral_gatt_sockets(p_cid, bridge.bd_addr)
       self._export_device_gatt_tree(cid, peer_addr)
       objs = self._build_managed_objects_dict()
-      self._emit_gatt_tree_added(object_path, objs)
+      # The Device1 object already exists; only announce its GATT children.
+      self._emit_gatt_tree_added(object_path, objs, include_device_path=False)
       self._emit_all(
           object_path,
           'org.freedesktop.DBus.Properties',

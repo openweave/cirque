@@ -66,6 +66,7 @@ jobs:
             cirque/home/test_home_two_home_allocation.py \
             cirque/virtual_bt/test_adapter_bridge_locking.py \
             cirque/virtual_bt/test_bluez_gatt_c1_writer.py \
+            cirque/virtual_bt/test_bluez_gatt_connect_signals.py \
             cirque/virtual_bt/test_bluez_gatt_disconnect.py \
             cirque/virtual_bt/test_pty_bridge_bounds.py \
             cirque/virtual_bt/test_virtual_bt_pcap.py \
