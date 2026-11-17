@@ -64,6 +64,7 @@ jobs:
             cirque/connectivity/test_threadsimpipe_fault.py \
             cirque/connectivity/test_threadsimpipe_relay.py \
             cirque/home/test_home_two_home_allocation.py \
+            cirque/virtual_bt/test_adapter_bridge_att_serialization.py \
             cirque/virtual_bt/test_adapter_bridge_locking.py \
             cirque/virtual_bt/test_bluez_gatt_c1_writer.py \
             cirque/virtual_bt/test_bluez_gatt_connect_signals.py \

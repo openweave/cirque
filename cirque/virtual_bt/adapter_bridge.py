@@ -147,6 +147,15 @@ class VirtualBluezAdapterBridge:
     self.discovered_gatt: Dict[int, GattDiscoveryResult] = {}
     self._pending_att_responses: Dict[int, bytes] = {}
     self._att_cv = threading.Condition()
+    # ATT is a sequential protocol: a client has at most one request
+    # outstanding per bearer (Core Spec Vol 3, Part F, 3.3.2). One lock per
+    # connection handle, created under self._att_cv.
+    self._att_bearer_locks: Dict[int, threading.Lock] = {}
+    # Bearers whose last request timed out. Per Vol 3, Part F, 3.3.3 no
+    # further requests may be sent on them, so a late response can never be
+    # taken as the reply to a later request. Cleared when the handle
+    # disconnects or is reused by a new connection.
+    self._att_timed_out_bearers: set = set()
 
     self._lock = threading.RLock()
     self._running = False
@@ -208,7 +217,9 @@ class VirtualBluezAdapterBridge:
       self.rx_writes.clear()
       self.rx_indications.clear()
       self.discovered_gatt.clear()
-      self._pending_att_responses.clear()
+      with self._att_cv:
+        self._pending_att_responses.clear()
+        self._att_timed_out_bearers.clear()
       self.att_server.reset_connection_state()
     if self.h4_client is not None:
       self.h4_client.reset()
@@ -278,6 +289,8 @@ class VirtualBluezAdapterBridge:
     handle = self.h4_client.connect(peer_bd_addr, timeout=timeout)
     with self._lock:
       self.connected_handles[handle] = peer_bd_addr.upper()
+      with self._att_cv:
+        self._att_timed_out_bearers.discard(handle)
     if auto_discover:
       self.discover_gatt(handle, timeout=timeout)
     return handle
@@ -424,30 +437,57 @@ class VirtualBluezAdapterBridge:
       return None
 
     with self._att_cv:
-      self._pending_att_responses.pop(conn_handle, None)
-      self.h4_client.send_acl_l2cap(conn_handle, ATT_CID, req_pdu)
-
-    # Lock order: self._lock may be held while acquiring self._att_cv (the
-    # poll thread does so in _process_acl_att_packets), never the reverse.
-    # So _sync_from_h4_client, which takes self._lock, runs only after
-    # self._att_cv has been released.
-    deadline = time.time() + timeout
-    while True:
+      bearer_lock = self._att_bearer_locks.setdefault(
+          conn_handle, threading.Lock()
+      )
+    # Wait for the previous request on this bearer to complete. Callers must
+    # not hold self._lock here: the request in flight needs it to sync.
+    if not bearer_lock.acquire(timeout=timeout):
+      raise TimeoutError(
+          f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X} timed'
+          ' out waiting for the outstanding request'
+      )
+    try:
       with self._att_cv:
-        rsp = take_response()
-        if rsp is not None:
-          return rsp
-        rem = deadline - time.time()
-        if rem <= 0:
-          break
-        self._att_cv.wait(timeout=min(rem, 0.05))
-        rsp = take_response()
-        if rsp is not None:
-          return rsp
-      self._sync_from_h4_client()
-    raise TimeoutError(
-        f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X} timed out'
-    )
+        if conn_handle in self._att_timed_out_bearers:
+          raise TimeoutError(
+              f'ATT bearer on handle 0x{conn_handle:04X} unusable after a'
+              ' request timed out'
+          )
+        self._pending_att_responses.pop(conn_handle, None)
+        self.h4_client.send_acl_l2cap(conn_handle, ATT_CID, req_pdu)
+      was_connected = conn_handle in self.connected_handles
+
+      # Lock order: self._lock may be held while acquiring self._att_cv (the
+      # poll thread does so in _process_acl_att_packets), never the reverse.
+      # So _sync_from_h4_client, which takes self._lock, runs only after
+      # self._att_cv has been released.
+      deadline = time.time() + timeout
+      while True:
+        with self._att_cv:
+          rsp = take_response()
+          if rsp is not None:
+            return rsp
+          rem = deadline - time.time()
+          if rem <= 0:
+            self._att_timed_out_bearers.add(conn_handle)
+            break
+          self._att_cv.wait(timeout=min(rem, 0.05))
+          rsp = take_response()
+          if rsp is not None:
+            return rsp
+        self._sync_from_h4_client()
+        if was_connected and conn_handle not in self.connected_handles:
+          raise ConnectionError(
+              f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X}'
+              ' aborted: disconnected'
+          )
+      raise TimeoutError(
+          f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X} timed'
+          ' out'
+      )
+    finally:
+      bearer_lock.release()
 
   def discover_gatt(
       self, conn_handle: int, timeout: float = 3.0, enable_indications: bool = True
@@ -842,6 +882,9 @@ class VirtualBluezAdapterBridge:
         self.connected_handles[h] = p_addr
       if stale_handles or new_conns:
         self.att_server.reset_connection_state()
+        with self._att_cv:
+          for h in stale_handles + [h for h, _ in new_conns]:
+            self._att_timed_out_bearers.discard(h)
       new_writes, new_inds, new_cfms = self._process_acl_att_packets(acls)
 
     self._dispatch_bridge_callbacks(
