@@ -539,6 +539,7 @@ class BluezDbusVirtualService(BluezGattPeripheralMixin):
       ):
         self._close_peripheral_fds(cid)
       self._discovered_dev_paths.clear()
+      self._forget_announced_devices()
       if self.docker_manager is not None:
         with self.docker_manager._lock:
           for bridge in self.docker_manager.adapter_bridges.values():
@@ -551,6 +552,7 @@ class BluezDbusVirtualService(BluezGattPeripheralMixin):
     ):
       self._close_peripheral_fds(cid)
     self._stop_all_c1_writers()
+    self._forget_announced_devices()
     if self._loop is not None:
       try:
         self._loop.quit()
