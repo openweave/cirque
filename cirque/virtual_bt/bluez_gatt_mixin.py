@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional
 from cirque.virtual_bt.bluez_gatt_helpers import (
     acquire_gatt_characteristic_fd,
     build_managed_objects_dict,
+    remove_bridge_device,
 )
 from cirque.virtual_bt.adapter_bridge import VirtualBluezAdapterBridge
 
@@ -62,6 +63,84 @@ class BluezGattPeripheralMixin:
     with self.__dict__.setdefault('_announced_lock', threading.Lock()):
       self.__dict__.pop('_announced_dev_paths', None)
 
+  def _forget_announced_device(self, dev_path: str) -> None:
+    """Lets dev_path be announced again after it left the object tree."""
+    with self.__dict__.setdefault('_announced_lock', threading.Lock()):
+      self.__dict__.get('_announced_dev_paths', set()).discard(dev_path)
+
+  def _emit_device_removed(
+      self, dev_path: str, objs_before: Dict[str, Any]
+  ) -> None:
+    """Emits InterfacesRemoved for dev_path and its GATT children."""
+    from gi.repository import GLib  # pylint: disable=g-import-not-at-top
+
+    self._forget_announced_device(dev_path)
+    paths = [
+        f'{dev_path}/service00/char01',
+        f'{dev_path}/service00/char00',
+        f'{dev_path}/service00',
+        dev_path,
+    ]
+    for path in paths:
+      if path in objs_before:
+        self._emit_all(
+            '/',
+            'org.freedesktop.DBus.ObjectManager',
+            'InterfacesRemoved',
+            GLib.Variant('(oas)', (path, list(objs_before[path]))),
+        )
+
+  def _remove_adapter_device(
+      self,
+      bridge: Optional[VirtualBluezAdapterBridge],
+      dev_path: str,
+      invocation: object,
+  ) -> None:
+    """Handles Adapter1.RemoveDevice with signal-before-reply ordering.
+
+    A connected device stays in discovered_peripherals and
+    _discovered_dev_paths so its properties stay intact while connected and
+    it remains in GetManagedObjects consistent with _announced_dev_paths
+    after disconnect. An unconnected device is removed and forgotten before
+    the D-Bus reply is sent, so rediscovery announces a new Device1 object.
+    """
+    with self._lock:
+      # pylint: disable=protected-access
+      with self.docker_manager._lock:
+        objs_before = self._build_managed_objects_dict()
+        parts = dev_path.split('/')
+        path_cid = parts[3] if len(parts) > 4 else None
+        wrong_adapter = (
+            path_cid is not None
+            and path_cid in self.docker_manager.adapter_bridges
+            and self.docker_manager.adapter_bridges[path_cid] is not bridge
+        )
+        if wrong_adapter:
+          still_listed = True
+        elif bridge is not None:
+          with bridge._sync_lock:
+            is_connected = remove_bridge_device(bridge, dev_path)
+            if not is_connected:
+              self._discovered_dev_paths.discard(dev_path)
+            still_listed = (
+                is_connected
+                or dev_path in self._build_managed_objects_dict()
+            )
+            if not still_listed:
+              self._forget_announced_device(dev_path)
+        else:
+          self._discovered_dev_paths.discard(dev_path)
+          still_listed = dev_path in self._build_managed_objects_dict()
+          if not still_listed:
+            self._forget_announced_device(dev_path)
+      if not still_listed:
+        try:
+          self._emit_device_removed(dev_path, objs_before)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+          logger.debug('InterfacesRemoved emit failed: %s', exc)
+    if invocation is not None:
+      invocation.return_value(None)
+
   def _emit_gatt_tree_added(
       self,
       base_path: str,
@@ -76,9 +155,12 @@ class BluezGattPeripheralMixin:
         f'{base_path}/service00/char00',
         f'{base_path}/service00/char01',
     ]
-    if include_device_path and base_path in objs:
+    if (
+        include_device_path
+        and base_path in objs
+        and self._mark_device_announced(base_path)
+    ):
       paths.insert(0, base_path)
-      self._mark_device_announced(base_path)
     for path in paths:
       if path in objs:
         self._emit_all(
@@ -506,35 +588,45 @@ class BluezGattPeripheralMixin:
   @staticmethod
   def _disconnect_bridge_handles(
       bridge: VirtualBluezAdapterBridge, peer_addr: Optional[str] = None
-  ) -> None:
+  ) -> bool:
     """Sends HCI Disconnect (0x0406) for a bridge's handles to peer_addr.
 
     With peer_addr=None every handle is disconnected. Disconnected handles
     are removed from connected_handles together with their cached GATT
-    discovery, so a reconnect re-runs discovery.
+    discovery, so a reconnect re-runs discovery. Returns True if a matching
+    connection remains live because its generation advanced while unlocked.
     """
     with bridge._lock:  # pylint: disable=protected-access
+      # Remember each handle's generation: it may be reused while unlocked.
+      # pylint: disable=protected-access
+      gens = bridge._active_conn_generations
       handles = [
-          h
+          (h, gens.get(h))
           for h, addr in bridge.connected_handles.items()
           if peer_addr is None or str(addr).upper() == peer_addr.upper()
       ]
     if bridge.h4_client is not None:
-      for handle in handles:
+      for handle, _ in handles:
         try:
           bridge.h4_client.send_command(
               0x0406, struct.pack('<HB', handle, 0x13), timeout=1.0
           )
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-exception-caught
           logger.debug(
               'Failed sending HCI Disconnect for handle 0x%04X: %s',
               handle,
               exc,
           )
     with bridge._lock:  # pylint: disable=protected-access
-      for handle in handles:
+      for handle, gen in handles:
+        if gens.get(handle) != gen:
+          continue  # Reused or already removed while unlocked.
         bridge.connected_handles.pop(handle, None)
         bridge.discovered_gatt.pop(handle, None)
+      return any(
+          peer_addr is None or str(addr).upper() == peer_addr.upper()
+          for addr in bridge.connected_handles.values()
+      )
 
   def _disconnect_device(
       self,
@@ -548,7 +640,10 @@ class BluezGattPeripheralMixin:
     parts = object_path.split('/')
     dev_part = parts[4] if len(parts) > 4 else parts[-1]
     peer_addr = dev_part.replace('dev_', '').replace('_', ':')
-    self._disconnect_bridge_handles(bridge, peer_addr)
+    if self._disconnect_bridge_handles(bridge, peer_addr):
+      if invocation is not None:
+        invocation.return_value(None)
+      return
     disconnected_props = GLib.Variant(
         '(sa{sv}as)',
         ('org.bluez.Device1', {'Connected': GLib.Variant('b', False)}, []),
@@ -556,15 +651,17 @@ class BluezGattPeripheralMixin:
     for p_cid, p_bridge in list(self.docker_manager.adapter_bridges.items()):
       if p_bridge.bd_addr.upper() != peer_addr.upper():
         continue
-      self._disconnect_bridge_handles(p_bridge, bridge.bd_addr)
-      self._close_peripheral_fds(p_cid)
-      periph_dev = f'/org/bluez/{p_cid}/dev_{bridge.bd_addr.replace(":", "_")}'
-      self._emit_all(
-          periph_dev,
-          'org.freedesktop.DBus.Properties',
-          'PropertiesChanged',
-          disconnected_props,
-      )
+      if not self._disconnect_bridge_handles(p_bridge, bridge.bd_addr):
+        self._close_peripheral_fds(p_cid)
+        periph_dev = (
+            f'/org/bluez/{p_cid}/dev_{bridge.bd_addr.replace(":", "_")}'
+        )
+        self._emit_all(
+            periph_dev,
+            'org.freedesktop.DBus.Properties',
+            'PropertiesChanged',
+            disconnected_props,
+        )
     self._emit_all(
         object_path,
         'org.freedesktop.DBus.Properties',

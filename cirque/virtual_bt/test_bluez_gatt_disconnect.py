@@ -46,9 +46,10 @@ class DummyMixinHost(BluezGattPeripheralMixin):
   def __init__(self):
     self.docker_manager = DummyDockerManager()
     self.emitted_signals = []
+    self.closed_fds = []
 
   def _close_peripheral_fds(self, p_cid: str):
-    pass
+    self.closed_fds.append(p_cid)
 
   def _emit_all(self, object_path: str, interface: str, signal: str, parameters):
     self.emitted_signals.append({
@@ -148,6 +149,117 @@ class TestBluezGattDisconnect(unittest.TestCase):
     self.assertEqual(bridge.connected_handles, {0x0042: '02:00:00:00:03:03'})
     self.assertNotIn(0x0040, bridge.discovered_gatt)
     self.assertIn(0x0042, bridge.discovered_gatt)
+
+  def test_disconnect_keeps_handle_reused_while_unlocked(self):
+    """A handle reused during the HCI Disconnect wait is a new connection."""
+    host = DummyMixinHost()
+    bridge = VirtualBluezAdapterBridge(
+        controller_id='hci0',
+        bd_addr='02:00:00:00:01:01',
+        host='127.0.0.1',
+        dedicated_hci_port=10001,
+    )
+    peer = '02:00:00:00:02:02'
+
+    class ReconnectingH4Client(RecordingH4Client):
+
+      def send_command(self, opcode, params=b'', timeout=1.0):
+        # The poll thread sees the old link drop and a new one on 0x0040.
+        bridge.connected_handles.pop(0x0040)
+        bridge.connected_handles[0x0040] = peer
+        return super().send_command(opcode, params, timeout)
+
+    bridge.h4_client = ReconnectingH4Client()
+    bridge.connected_handles[0x0040] = peer
+    old_gen = bridge._active_conn_generations[0x0040]
+
+    self.assertTrue(host._disconnect_bridge_handles(bridge, peer))
+    self.assertEqual(bridge.connected_handles, {0x0040: peer})
+    self.assertGreater(bridge._active_conn_generations[0x0040], old_gen)
+
+  def test_disconnect_device_skips_teardown_when_reused_while_unlocked(self):
+    """_disconnect_device keeps p_bridge and FDs if peer reconnected."""
+    host = DummyMixinHost()
+    central_addr = '02:00:00:00:01:01'
+    peer = '02:00:00:00:02:02'
+    bridge = VirtualBluezAdapterBridge(
+        controller_id='hci0',
+        bd_addr=central_addr,
+        host='127.0.0.1',
+        dedicated_hci_port=10001,
+    )
+    peer_bridge = VirtualBluezAdapterBridge(
+        controller_id='hci1',
+        bd_addr=peer,
+        host='127.0.0.1',
+        dedicated_hci_port=10002,
+    )
+    peer_h4 = RecordingH4Client()
+    peer_bridge.h4_client = peer_h4
+    peer_bridge.connected_handles[0x0041] = central_addr
+    host.docker_manager.adapter_bridges['hci1'] = peer_bridge
+
+    class ReconnectingH4Client(RecordingH4Client):
+
+      def send_command(self, opcode, params=b'', timeout=1.0):
+        bridge.connected_handles.pop(0x0040)
+        bridge.connected_handles[0x0040] = peer
+        return super().send_command(opcode, params, timeout)
+
+    bridge.h4_client = ReconnectingH4Client()
+    bridge.connected_handles[0x0040] = peer
+    invocation = RecordingInvocation()
+    host._disconnect_device(
+        bridge, '/org/bluez/hci0/dev_02_00_00_00_02_02', invocation
+    )
+
+    self.assertEqual(invocation.returned, [None])
+    self.assertEqual(bridge.connected_handles, {0x0040: peer})
+    self.assertEqual(peer_bridge.connected_handles, {0x0041: central_addr})
+    self.assertEqual(peer_h4.sent_commands, [])
+    self.assertEqual(host.closed_fds, [])
+    self.assertEqual(host.emitted_signals, [])
+
+  def test_disconnect_device_completes_when_poll_already_popped_handle(self):
+    """Poll thread popping handle while unlocked still tears down p_bridge."""
+    host = DummyMixinHost()
+    central_addr = '02:00:00:00:01:01'
+    peer = '02:00:00:00:02:02'
+    bridge = VirtualBluezAdapterBridge(
+        controller_id='hci0',
+        bd_addr=central_addr,
+        host='127.0.0.1',
+        dedicated_hci_port=10001,
+    )
+    peer_bridge = VirtualBluezAdapterBridge(
+        controller_id='hci1',
+        bd_addr=peer,
+        host='127.0.0.1',
+        dedicated_hci_port=10002,
+    )
+    peer_h4 = RecordingH4Client()
+    peer_bridge.h4_client = peer_h4
+    peer_bridge.connected_handles[0x0041] = central_addr
+    host.docker_manager.adapter_bridges['hci1'] = peer_bridge
+
+    class PollPoppingH4Client(RecordingH4Client):
+
+      def send_command(self, opcode, params=b'', timeout=1.0):
+        bridge.connected_handles.pop(0x0040, None)
+        return super().send_command(opcode, params, timeout)
+
+    bridge.h4_client = PollPoppingH4Client()
+    bridge.connected_handles[0x0040] = peer
+    invocation = RecordingInvocation()
+    host._disconnect_device(
+        bridge, '/org/bluez/hci0/dev_02_00_00_00_02_02', invocation
+    )
+
+    self.assertEqual(invocation.returned, [None])
+    self.assertEqual(bridge.connected_handles, {})
+    self.assertEqual(peer_bridge.connected_handles, {})
+    self.assertEqual(host.closed_fds, ['hci1'])
+    self.assertEqual(len(host.emitted_signals), 2)
 
 
 if __name__ == '__main__':

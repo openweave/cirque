@@ -216,6 +216,157 @@ class TestBluezGattConnectSignals(unittest.TestCase):
     service.reset_connections()
     self.assertTrue(service._mark_device_announced(PERIPH_DEV))
 
+  def test_emit_gatt_tree_added_skips_when_already_announced(self):
+    self.central.discovered_peripherals[PERIPH_ADDR] = {
+        'bd_addr': PERIPH_ADDR,
+        'rssi': -40,
+        'discriminator': 3840,
+    }
+    objs = self.host._build_managed_objects_dict()
+    # Marking happens only when base_path is present in objs.
+    self.host._emit_gatt_tree_added(CENTRAL_DEV, {})
+    self.assertEqual(self.host.interfaces_added_paths(), [])
+    self.assertNotIn(
+        CENTRAL_DEV, getattr(self.host, '_announced_dev_paths', set())
+    )
+
+    # First emit with base_path in objs announces Device1 and GATT children.
+    self.host._emit_gatt_tree_added(CENTRAL_DEV, objs)
+    self.assertEqual(
+        self.host.interfaces_added_paths(), [CENTRAL_DEV] + GATT_CHILDREN
+    )
+
+    # Subsequent emit with include_device_path=True skips Device1 because
+    # _mark_device_announced returns False, while still emitting GATT children.
+    self.host.clear_signals()
+    self.host._emit_gatt_tree_added(CENTRAL_DEV, objs)
+    self.assertEqual(self.host.interfaces_added_paths(), GATT_CHILDREN)
+
+  def test_rediscovery_after_start_discovery_does_not_reannounce_device(self):
+    self._discover_peripheral()
+    self.host._discovered_dev_paths.clear()
+    self._discover_peripheral()
+    self.assertEqual(self.host.interfaces_added_paths().count(CENTRAL_DEV), 1)
+
+  def _make_service(self):
+    # pylint: disable=g-import-not-at-top
+    from cirque.virtual_bt.bluez_dbus_daemon import BluezDbusVirtualService
+
+    manager = types.SimpleNamespace(
+        dbus_dir='/nonexistent',
+        adapter_bridges={CENTRAL_CID: self.central},
+        _lock=threading.RLock(),
+    )
+    service = BluezDbusVirtualService(manager)
+    service._running = True
+    service._emit_all = self.host._emit_all
+    self.central.h4_client = types.SimpleNamespace(
+        _cv=threading.Condition(), _adv_reports=[]
+    )
+    return service
+
+  def _service_discover(self, service):
+    self.central.discovered_peripherals[PERIPH_ADDR] = {
+        'bd_addr': PERIPH_ADDR,
+        'rssi': -40,
+        'discriminator': 3840,
+    }
+    service._on_peripheral_discovered(CENTRAL_CID, PERIPH_ADDR, {})
+
+  def _remove_device(self, service, events=None):
+    invocation = RecordingInvocation()
+    if events is not None:
+      orig_return = invocation.return_value
+
+      def tracked_return(value):
+        events.append(('reply', value))
+        orig_return(value)
+
+      invocation.return_value = tracked_return
+    service._handle_adapter_method(
+        self.central,
+        'RemoveDevice',
+        GLib.Variant('(o)', (CENTRAL_DEV,)),
+        invocation,
+    )
+    self.assertEqual(invocation.returned, [None])
+
+  def _interfaces_removed_paths(self):
+    return [
+        s['params'].unpack()[0]
+        for s in self.host.emitted_signals
+        if s['signal'] == 'InterfacesRemoved'
+    ]
+
+  def test_remove_device_allows_announcing_again(self):
+    service = self._make_service()
+    self._service_discover(service)
+    events = []
+    orig_emit = service._emit_all
+
+    def tracked_emit(path, iface, sig, params):
+      if sig == 'InterfacesRemoved':
+        events.append(('removed', params.unpack()[0]))
+      orig_emit(path, iface, sig, params)
+
+    service._emit_all = tracked_emit
+    self._remove_device(service, events=events)
+    expected_removed = list(reversed(GATT_CHILDREN)) + [CENTRAL_DEV]
+    self.assertEqual(self._interfaces_removed_paths(), expected_removed)
+    self.assertEqual(
+        events,
+        [('removed', p) for p in expected_removed] + [('reply', None)],
+    )
+
+    # BlueZ exports a new Device1 when a removed device is seen again.
+    self._service_discover(service)
+    self.assertEqual(self.host.interfaces_added_paths().count(CENTRAL_DEV), 2)
+
+  def test_remove_connected_device_keeps_it_announced(self):
+    service = self._make_service()
+    self._service_discover(service)
+    self.central.connected_handles[0x0040] = PERIPH_ADDR
+    self.central.h4_client._adv_reports.append({'bd_addr': PERIPH_ADDR})
+    self._remove_device(service)
+    # Still connected: adv cache clears, but cached Device1 props stay intact.
+    self.assertEqual(self.central.h4_client._adv_reports, [])
+    self.assertEqual(self._interfaces_removed_paths(), [])
+    self.assertFalse(service._mark_device_announced(CENTRAL_DEV))
+    objs_conn = service._build_managed_objects_dict()
+    dev_props = objs_conn[CENTRAL_DEV]['org.bluez.Device1']
+    self.assertEqual(dev_props['RSSI'].unpack(), -40)
+    self.assertTrue(dev_props['Connected'].unpack())
+
+    # Normal disconnect keeps Device1 in GetManagedObjects (cirque#70).
+    service._disconnect_device(self.central, CENTRAL_DEV, None)
+    objs_disc = service._build_managed_objects_dict()
+    self.assertIn(CENTRAL_DEV, objs_disc)
+    self.assertFalse(
+        objs_disc[CENTRAL_DEV]['org.bluez.Device1']['Connected'].unpack()
+    )
+    self.assertEqual(self._interfaces_removed_paths(), [])
+
+    # Subsequent RemoveDevice while disconnected emits InterfacesRemoved
+    # before replying and allows rediscovery to announce Device1 again.
+    events = []
+    orig_emit = service._emit_all
+
+    def tracked_emit(path, iface, sig, params):
+      if sig == 'InterfacesRemoved':
+        events.append(('removed', params.unpack()[0]))
+      orig_emit(path, iface, sig, params)
+
+    service._emit_all = tracked_emit
+    self._remove_device(service, events=events)
+    expected_removed = list(reversed(GATT_CHILDREN)) + [CENTRAL_DEV]
+    self.assertNotIn(CENTRAL_DEV, service._build_managed_objects_dict())
+    self.assertEqual(
+        events,
+        [('removed', p) for p in expected_removed] + [('reply', None)],
+    )
+    self._service_discover(service)
+    self.assertEqual(self.host.interfaces_added_paths().count(CENTRAL_DEV), 2)
+
 
 if __name__ == '__main__':
   unittest.main()
