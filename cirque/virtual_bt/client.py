@@ -119,6 +119,24 @@ class VirtualBtControlClient:
     return self.request({'cmd': 'reset_controllers'})
 
 
+class AclPacket(tuple):
+  """A received (handle, cid, payload) tuple tagged with its connection.
+
+  generation is the H4 connection generation the handle had when the packet
+  arrived, or None if the handle had no connection then. The tuple itself is
+  unchanged, so (handle, cid, payload) consumers keep working.
+  """
+
+  generation: Optional[int]
+
+  def __new__(
+      cls, pkt: Tuple[int, int, bytes], generation: Optional[int] = None
+  ):
+    obj = super().__new__(cls, pkt)
+    obj.generation = generation
+    return obj
+
+
 class H4TcpClient:
   """Bluetooth Host Stack Client speaking standard H4-over-TCP."""
 
@@ -140,6 +158,7 @@ class H4TcpClient:
     self._acl_packets: List[Tuple[int, int, bytes]] = []
     self._adv_reports: List[Dict[str, object]] = []
     self._connections: Dict[int, Dict[str, object]] = {}
+    self._conn_generation_seq: int = 0
     self._cv = threading.Condition(self._lock)
     self._running = True
 
@@ -163,7 +182,11 @@ class H4TcpClient:
           self._events.append(pkt)
           self._parse_le_meta(pkt.payload)
         elif pkt.packet_type == H4PacketType.ACL_DATA:
-          self._acl_packets.append(parse_acl_packet(pkt.payload))
+          acl = parse_acl_packet(pkt.payload)
+          cinfo = self._connections.get(acl[0])
+          self._acl_packets.append(
+              AclPacket(acl, cinfo.get('generation') if cinfo else None)
+          )
       self._cv.notify_all()
 
   def _rx_loop(self) -> None:
@@ -211,11 +234,13 @@ class H4TcpClient:
         status = event_payload[3]
         handle = struct.unpack_from('<H', event_payload, 4)[0] & 0x0FFF
         if status == 0x00:
+          self._conn_generation_seq += 1
           self._connections[handle] = {
               'handle': handle,
               'role': event_payload[6],
               'peer_addr_type': event_payload[7],
               'peer_bd_addr': bdaddr_bytes_to_str(event_payload[8:14]),
+              'generation': self._conn_generation_seq,
           }
     elif (
         ev_code == HciEventCode.DISCONNECTION_COMPLETE

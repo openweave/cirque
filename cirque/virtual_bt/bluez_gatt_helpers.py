@@ -272,15 +272,30 @@ def build_managed_objects_dict(
             ),
         },
     }
-    conn_addrs = set(bridge.connected_handles.values())
-    for addr, pinfo in bridge.discovered_peripherals.items():
+    # pylint: disable=protected-access
+    with bridge._lock:
+      conn_raw = list(bridge.connected_handles.values())
+      discovered = [
+          (addr, dict(pinfo))
+          for addr, pinfo in bridge.discovered_peripherals.items()
+      ]
+    conn_addrs = {str(a).upper() for a in conn_raw}
+    discovered_addrs = {str(addr).upper() for addr, _ in discovered}
+    for addr, pinfo in discovered:
       objects.update(
           _build_peripheral_gatt_entries(
-              adapter_path, addr, pinfo, addr in conn_addrs, bridge.profile
+              adapter_path,
+              addr,
+              pinfo,
+              str(addr).upper() in conn_addrs,
+              bridge.profile,
           )
       )
-    for addr in conn_addrs:
-      if addr not in bridge.discovered_peripherals:
+    seen_conn = set()
+    for addr in conn_raw:
+      addr_upper = str(addr).upper()
+      if addr_upper not in discovered_addrs and addr_upper not in seen_conn:
+        seen_conn.add(addr_upper)
         objects.update(
             _build_peripheral_gatt_entries(
                 adapter_path, addr, {}, True, bridge.profile
@@ -403,6 +418,34 @@ def query_app_managed_objects(connection, sender: str, app_path: str) -> dict:
   return {}
 
 
+def remove_bridge_device(
+    bridge: Optional[VirtualBluezAdapterBridge], dev_path: str
+) -> bool:
+  """Removes an unconnected peer for dev_path; returns True if connected."""
+  if bridge is None or '/dev_' not in dev_path:
+    return False
+  dev_part = dev_path.split('/')[-1]
+  peer_addr = dev_part.replace('dev_', '').replace('_', ':').upper()
+  # pylint: disable=protected-access
+  with bridge._sync_lock:
+    with bridge._lock:
+      conn_addrs = {
+          str(a).upper() for a in bridge.connected_handles.values()
+      }
+      is_connected = peer_addr in conn_addrs
+      if not is_connected:
+        for addr in [
+            k
+            for k in bridge.discovered_peripherals
+            if str(k).upper() == peer_addr
+        ]:
+          bridge.discovered_peripherals.pop(addr, None)
+      if bridge.h4_client is not None:
+        with bridge.h4_client._cv:
+          bridge.h4_client._adv_reports.clear()
+  return is_connected
+
+
 def handle_bluez_adapter_method(
     bridge: Optional[VirtualBluezAdapterBridge],
     method_name: str,
@@ -410,20 +453,16 @@ def handle_bluez_adapter_method(
     invocation,
 ) -> None:
   """Handles org.bluez.Adapter1 D-Bus method calls."""
-  if bridge is not None and bridge.h4_client is not None:
-    if method_name == 'StartDiscovery':
+  if bridge is not None:
+    if method_name == 'StartDiscovery' and bridge.h4_client is not None:
       with bridge._lock:  # pylint: disable=protected-access
         bridge.discovered_peripherals.clear()
       with bridge.h4_client._cv:  # pylint: disable=protected-access
         bridge.h4_client._adv_reports.clear()  # pylint: disable=protected-access
       bridge.h4_client.start_scanning(active=True)
-    elif method_name == 'StopDiscovery':
+    elif method_name == 'StopDiscovery' and bridge.h4_client is not None:
       bridge.h4_client.send_command(0x200C, b'\x00\x00')
     elif method_name == 'RemoveDevice':
-      dev_part = parameters.unpack()[0].split('/')[-1]
-      peer_addr = dev_part.replace('dev_', '').replace('_', ':').upper()
-      with bridge._lock:  # pylint: disable=protected-access
-        bridge.discovered_peripherals.pop(peer_addr, None)
-      with bridge.h4_client._cv:  # pylint: disable=protected-access
-        bridge.h4_client._adv_reports.clear()  # pylint: disable=protected-access
-  invocation.return_value(None)
+      remove_bridge_device(bridge, parameters.unpack()[0])
+  if invocation is not None:
+    invocation.return_value(None)

@@ -93,6 +93,79 @@ class GattDiscoveryResult:
   indications_enabled: bool = False
 
 
+def _att_aborted(
+    req_opcode: int, conn_handle: int, why: str
+) -> ConnectionError:
+  return ConnectionError(
+      f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X}'
+      f' aborted: {why}'
+  )
+
+
+class _ConnectedHandlesDict(dict):
+  """Dict seam tracking handle generations across bridge and test edits."""
+
+  # pylint: disable=protected-access
+
+  def __init__(self, bridge: 'VirtualBluezAdapterBridge') -> None:
+    super().__init__()
+    self._bridge = bridge
+
+  def __setitem__(self, handle: int, peer_addr: str) -> None:
+    _, h4_gen = self._bridge._h4_conn_state(handle)
+    with self._bridge._lock:
+      self._bridge._set_connected_handle(handle, peer_addr, h4_gen=h4_gen)
+
+  def __delitem__(self, handle: int) -> None:
+    with self._bridge._lock:
+      if not dict.__contains__(self, handle):
+        raise KeyError(handle)
+      self._bridge._remove_connected_handle(handle)
+
+  def pop(self, handle: int, *default):
+    if len(default) > 1:
+      raise TypeError(
+          f'pop expected at most 2 arguments, got {1 + len(default)}'
+      )
+    with self._bridge._lock:
+      if dict.__contains__(self, handle):
+        val = dict.__getitem__(self, handle)
+        self._bridge._remove_connected_handle(handle)
+        return val
+      if default:
+        return default[0]
+      raise KeyError(handle)
+
+  def popitem(self):
+    with self._bridge._lock:
+      key, val = dict.popitem(self)
+      self._bridge._cleanup_removed_handles([key])
+      return key, val
+
+  def clear(self) -> None:
+    with self._bridge._lock:
+      keys = list(self.keys())
+      dict.clear(self)
+      self._bridge._cleanup_removed_handles(keys)
+
+  def setdefault(self, handle: int, default: str = '') -> str:
+    _, h4_gen = self._bridge._h4_conn_state(handle)
+    with self._bridge._lock:
+      if dict.__contains__(self, handle):
+        return dict.__getitem__(self, handle)
+      self._bridge._set_connected_handle(handle, default, h4_gen=h4_gen)
+      return default
+
+  def update(self, *args, **kwargs) -> None:
+    other = dict(*args, **kwargs)
+    for handle, peer_addr in other.items():
+      self[handle] = peer_addr
+
+  def __ior__(self, other):
+    self.update(other)
+    return self
+
+
 class VirtualBluezAdapterBridge:
   """Bridges a VirtualBluetoothController over H4 TCP to a BLE GATT profile.
 
@@ -123,7 +196,7 @@ class VirtualBluezAdapterBridge:
     self._custom_adv_params: Optional[Tuple[bytes, bytes, Optional[str]]] = None
     self.h4_client: Optional[H4TcpClient] = None
     self.discovered_peripherals: Dict[str, Dict[str, object]] = {}
-    self.connected_handles: Dict[int, str] = {}
+    self.connected_handles: Dict[int, str] = _ConnectedHandlesDict(self)
     self.rx_indications: List[bytes] = []
     self.rx_writes: List[bytes] = []
     self.att_write_count: int = 0
@@ -146,18 +219,28 @@ class VirtualBluezAdapterBridge:
     # Discovered GATT hierarchy per active connection handle for central roles
     self.discovered_gatt: Dict[int, GattDiscoveryResult] = {}
     self._pending_att_responses: Dict[int, bytes] = {}
+    self._pending_att_response_gens: Dict[int, Optional[int]] = {}
+    self._conn_generation_seq: int = 0
+    self._active_conn_generations: Dict[int, int] = {}
+    self._h4_conn_generations: Dict[int, int] = {}
+    self._retired_h4_conn_generations: Dict[int, int] = {}
     self._att_cv = threading.Condition()
     # ATT is a sequential protocol: a client has at most one request
     # outstanding per bearer (Core Spec Vol 3, Part F, 3.3.2). One lock per
     # connection handle, created under self._att_cv.
     self._att_bearer_locks: Dict[int, threading.Lock] = {}
-    # Bearers whose last request timed out. Per Vol 3, Part F, 3.3.3 no
-    # further requests may be sent on them, so a late response can never be
-    # taken as the reply to a later request. Cleared when the handle
-    # disconnects or is reused by a new connection.
+    # (handle, generation) pairs whose last request timed out. Per Vol 3,
+    # Part F, 3.3.3 no further requests may be sent on them, so a late
+    # response can never be taken as the reply to a later request.
     self._att_timed_out_bearers: set = set()
 
     self._lock = threading.RLock()
+    # Serializes snapshot and apply in _sync_from_h4_client, so H4 snapshots
+    # are applied in the order they were taken. Lock order:
+    # bearer_lock < _sync_lock < self._lock < self._att_cv. h4_client._cv is
+    # a leaf lock; bridge locks are never acquired while holding it.
+    # Reentrant because ATT server callbacks run inside the apply step.
+    self._sync_lock = threading.RLock()
     self._running = False
     self._poll_thread: Optional[threading.Thread] = None
 
@@ -193,6 +276,9 @@ class VirtualBluezAdapterBridge:
   def start(self) -> None:
     self.h4_client = H4TcpClient(self.host, self.dedicated_hci_port, bind_controller_id=self.bind_controller_id)
     self.h4_client.reset()
+    with self._att_cv:
+      self._h4_conn_generations.clear()
+      self._retired_h4_conn_generations.clear()
     self._running = True
     self._poll_thread = threading.Thread(
         target=self._poll_events_loop,
@@ -218,11 +304,122 @@ class VirtualBluezAdapterBridge:
       self.rx_indications.clear()
       self.discovered_gatt.clear()
       with self._att_cv:
+        self._h4_conn_generations.clear()
+        self._retired_h4_conn_generations.clear()
         self._pending_att_responses.clear()
+        self._pending_att_response_gens.clear()
         self._att_timed_out_bearers.clear()
       self.att_server.reset_connection_state()
     if self.h4_client is not None:
       self.h4_client.reset()
+
+  def _h4_conn_state(
+      self, conn_handle: int
+  ) -> Tuple[Optional[bool], Optional[int]]:
+    """Returns (is_connected_in_h4_or_None, h4_generation) for conn_handle."""
+    if self.h4_client is None:
+      return None, None
+    cv = getattr(self.h4_client, '_cv', None)
+    conns = getattr(self.h4_client, '_connections', None)
+    if cv is None or conns is None:
+      return None, None
+    with cv:
+      cinfo = conns.get(conn_handle)
+      if cinfo is None:
+        return False, None
+      gen = cinfo.get('generation')
+      return True, int(gen) if gen is not None else None
+
+  def _cleanup_removed_handles(self, handles: List[int]) -> None:
+    """Clears generation, ATT bearer and GATT state for removed handles.
+
+    Callers hold self._lock.
+    """
+    if not handles:
+      return
+    handle_set = set(handles)
+    for h in handle_set:
+      self.discovered_gatt.pop(h, None)
+    with self._att_cv:
+      for h in handle_set:
+        self._active_conn_generations.pop(h, None)
+        prev_h4_gen = self._h4_conn_generations.pop(h, None)
+        if prev_h4_gen is not None:
+          self._retired_h4_conn_generations[h] = max(
+              self._retired_h4_conn_generations.get(h, 0), prev_h4_gen
+          )
+        self._pending_att_responses.pop(h, None)
+        self._pending_att_response_gens.pop(h, None)
+      self._att_timed_out_bearers = {
+          entry
+          for entry in self._att_timed_out_bearers
+          if entry[0] not in handle_set
+      }
+      self._att_cv.notify_all()
+
+  def _remove_connected_handle(self, handle: int) -> None:
+    """Removes a handle from connected_handles and cleans up bearer state."""
+    dict.pop(self.connected_handles, handle, None)
+    self._cleanup_removed_handles([handle])
+
+  def _set_connected_handle(
+      self,
+      handle: int,
+      peer_addr: str,
+      h4_gen: Optional[int] = None,
+  ) -> bool:
+    """Records a handle connection; returns True if new or replaced."""
+    with self._att_cv:
+      if (
+          h4_gen is not None
+          and h4_gen <= self._retired_h4_conn_generations.get(handle, 0)
+      ):
+        return False
+      was_present = dict.__contains__(self.connected_handles, handle)
+      prev_addr = dict.get(self.connected_handles, handle)
+      prev_h4_gen = self._h4_conn_generations.get(handle)
+      if (
+          h4_gen is not None
+          and prev_h4_gen is not None
+          and h4_gen < prev_h4_gen
+      ):
+        return False
+      addr_changed = (
+          was_present and str(prev_addr).upper() != str(peer_addr).upper()
+      )
+      # H4 generations only grow, so an older one is a stale snapshot.
+      h4_gen_advanced = (
+          was_present
+          and h4_gen is not None
+          and prev_h4_gen is not None
+          and h4_gen > prev_h4_gen
+      )
+      is_new_or_replaced = (
+          (not was_present) or addr_changed or h4_gen_advanced
+      )
+      dict.__setitem__(self.connected_handles, handle, peer_addr)
+      if h4_gen is not None and (prev_h4_gen is None or h4_gen > prev_h4_gen):
+        self._h4_conn_generations[handle] = h4_gen
+      elif is_new_or_replaced and h4_gen is None:
+        if prev_h4_gen is not None:
+          self._retired_h4_conn_generations[handle] = max(
+              self._retired_h4_conn_generations.get(handle, 0), prev_h4_gen
+          )
+        self._h4_conn_generations.pop(handle, None)
+      if is_new_or_replaced:
+        self._conn_generation_seq += 1
+        self._active_conn_generations[handle] = self._conn_generation_seq
+        self._pending_att_responses.pop(handle, None)
+        self._pending_att_response_gens.pop(handle, None)
+        self._att_timed_out_bearers = {
+            entry
+            for entry in self._att_timed_out_bearers
+            if entry[0] != handle
+        }
+        self._att_cv.notify_all()
+    if was_present and is_new_or_replaced:
+      self.discovered_gatt.pop(handle, None)
+    return is_new_or_replaced
 
   def start_profile_advertising(self, discriminator: int, **adv_kwargs) -> None:
     """Configures and enables the profile's BLE advertising over H4 TCP.
@@ -287,10 +484,12 @@ class VirtualBluezAdapterBridge:
     if self.h4_client is None:
       raise RuntimeError('H4 client not initialized')
     handle = self.h4_client.connect(peer_bd_addr, timeout=timeout)
-    with self._lock:
-      self.connected_handles[handle] = peer_bd_addr.upper()
-      with self._att_cv:
-        self._att_timed_out_bearers.discard(handle)
+    with self._sync_lock:
+      _, h4_gen = self._h4_conn_state(handle)
+      with self._lock:
+        self._set_connected_handle(
+            handle, peer_bd_addr.upper(), h4_gen=h4_gen
+        )
     if auto_discover:
       self.discover_gatt(handle, timeout=timeout)
     return handle
@@ -412,7 +611,14 @@ class VirtualBluezAdapterBridge:
   def send_att_request(
       self, conn_handle: int, req_pdu: bytes, timeout: float = 3.0
   ) -> bytes:
-    """Sends an ATT Request PDU and waits for the matching Response PDU."""
+    """Sends an ATT Request PDU and waits for the matching Response PDU.
+
+    Raises:
+      ConnectionError: conn_handle is not connected, or its connection was
+        dropped or replaced by a new one before the response arrived.
+      TimeoutError: no response arrived in time, or an earlier request on
+        this connection timed out.
+    """
     if self.h4_client is None:
       raise RuntimeError('H4 client not initialized')
     req_opcode = req_pdu[0]
@@ -428,18 +634,49 @@ class VirtualBluezAdapterBridge:
         ATT_OP_WRITE_REQ: {ATT_OP_WRITE_RSP, ATT_OP_ERROR_RSP},
     }.get(req_opcode, {req_opcode + 1, ATT_OP_ERROR_RSP})
 
-    def take_response() -> Optional[bytes]:
-      # Caller holds self._att_cv. A response with an unexpected opcode is
-      # consumed and dropped.
+    def take_response(req_gen: Optional[int]) -> Optional[bytes]:
+      # Caller holds self._att_cv. A response from a prior connection
+      # generation or with an unexpected opcode is consumed and dropped.
       rsp = self._pending_att_responses.pop(conn_handle, None)
-      if rsp is not None and rsp[0] in expected_resp_opcodes:
-        return rsp
+      rsp_gen = self._pending_att_response_gens.pop(conn_handle, None)
+      if rsp is not None:
+        if rsp_gen is not None and rsp_gen != req_gen:
+          return None
+        if rsp[0] in expected_resp_opcodes:
+          return rsp
       return None
 
+    h4_present, h4_gen = self._h4_conn_state(conn_handle)
     with self._att_cv:
       bearer_lock = self._att_bearer_locks.setdefault(
           conn_handle, threading.Lock()
       )
+      initial_gen = self._active_conn_generations.get(conn_handle)
+      tracked_h4_gen = self._h4_conn_generations.get(conn_handle)
+    if (
+        h4_present
+        and (
+            initial_gen is None
+            or (
+                h4_gen is not None
+                and tracked_h4_gen is not None
+                and h4_gen != tracked_h4_gen
+            )
+        )
+    ) or (
+        h4_present is not None and not h4_present and initial_gen is not None
+    ):
+      self._sync_from_h4_client()
+      h4_present, h4_gen = self._h4_conn_state(conn_handle)
+      with self._att_cv:
+        initial_gen = self._active_conn_generations.get(conn_handle)
+        tracked_h4_gen = self._h4_conn_generations.get(conn_handle)
+    if initial_gen is None:
+      raise _att_aborted(req_opcode, conn_handle, 'not connected')
+    # Bind to the H4 generation the bridge generation was minted for, read
+    # together with initial_gen, not to a possibly newer live H4 one.
+    initial_h4_gen = tracked_h4_gen if tracked_h4_gen is not None else h4_gen
+
     # Wait for the previous request on this bearer to complete. Callers must
     # not hold self._lock here: the request in flight needs it to sync.
     if not bearer_lock.acquire(timeout=timeout):
@@ -448,40 +685,52 @@ class VirtualBluezAdapterBridge:
           ' out waiting for the outstanding request'
       )
     try:
+      h4_present_now, h4_gen_now = self._h4_conn_state(conn_handle)
+      if (
+          (h4_present_now is not None and not h4_present_now)
+          or (initial_h4_gen is not None and h4_gen_now != initial_h4_gen)
+          or (initial_h4_gen is None and h4_gen_now is not None)
+      ):
+        # The poll thread reconciles bridge state; just refuse to send.
+        raise _att_aborted(req_opcode, conn_handle, 'disconnected')
       with self._att_cv:
-        if conn_handle in self._att_timed_out_bearers:
+        if self._active_conn_generations.get(conn_handle) != initial_gen:
+          raise _att_aborted(req_opcode, conn_handle, 'disconnected')
+        if (conn_handle, initial_gen) in self._att_timed_out_bearers:
           raise TimeoutError(
               f'ATT bearer on handle 0x{conn_handle:04X} unusable after a'
               ' request timed out'
           )
         self._pending_att_responses.pop(conn_handle, None)
+        self._pending_att_response_gens.pop(conn_handle, None)
         self.h4_client.send_acl_l2cap(conn_handle, ATT_CID, req_pdu)
-      was_connected = conn_handle in self.connected_handles
 
-      # Lock order: self._lock may be held while acquiring self._att_cv (the
-      # poll thread does so in _process_acl_att_packets), never the reverse.
-      # So _sync_from_h4_client, which takes self._lock, runs only after
-      # self._att_cv has been released.
+      # Lock order: bearer_lock < _sync_lock < self._lock < self._att_cv (the
+      # poll thread holds self._lock when acquiring self._att_cv in
+      # _process_acl_att_packets). So _sync_from_h4_client, which takes
+      # _sync_lock and self._lock, runs only after self._att_cv is released.
       deadline = time.time() + timeout
       while True:
         with self._att_cv:
-          rsp = take_response()
+          rsp = take_response(initial_gen)
           if rsp is not None:
             return rsp
+          if self._active_conn_generations.get(conn_handle) != initial_gen:
+            raise _att_aborted(req_opcode, conn_handle, 'disconnected')
           rem = deadline - time.time()
           if rem <= 0:
-            self._att_timed_out_bearers.add(conn_handle)
+            self._att_timed_out_bearers.add((conn_handle, initial_gen))
             break
           self._att_cv.wait(timeout=min(rem, 0.05))
-          rsp = take_response()
+          rsp = take_response(initial_gen)
           if rsp is not None:
             return rsp
+          if self._active_conn_generations.get(conn_handle) != initial_gen:
+            raise _att_aborted(req_opcode, conn_handle, 'disconnected')
         self._sync_from_h4_client()
-        if was_connected and conn_handle not in self.connected_handles:
-          raise ConnectionError(
-              f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X}'
-              ' aborted: disconnected'
-          )
+        with self._att_cv:
+          if self._active_conn_generations.get(conn_handle) != initial_gen:
+            raise _att_aborted(req_opcode, conn_handle, 'disconnected')
       raise TimeoutError(
           f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X} timed'
           ' out'
@@ -712,17 +961,38 @@ class VirtualBluezAdapterBridge:
     att_pdu = struct.pack('<BH', ATT_OP_HANDLE_VALUE_IND, ind_val_h) + payload
     self.h4_client.send_acl_l2cap(handle, ATT_CID, att_pdu)
 
+  def _acl_is_current(self, handle: int, pkt: Tuple[int, int, bytes]) -> bool:
+    """Returns whether pkt arrived on handle's current connection.
+
+    Packets from H4TcpClient carry the H4 generation they arrived on (see
+    client.AclPacket); untagged tuples are taken as current. Caller holds
+    self._att_cv.
+    """
+    if not hasattr(pkt, 'generation'):
+      return True
+    return (
+        pkt.generation is not None
+        and pkt.generation == self._h4_conn_generations.get(handle)
+    )
+
   def _process_acl_att_packets(
       self, acls: List[Tuple[int, int, bytes]]
   ) -> Tuple[List[bytes], List[bytes], int]:
-    """Dispatches incoming ATT packets for central and peripheral roles."""
+    """Dispatches incoming ATT packets for central and peripheral roles.
+
+    Packets from a connection that has since ended are still delivered, so
+    data sent just before a disconnect is not lost. Their responses are
+    dropped and nothing is sent back for them, as the handle may already
+    belong to a new connection.
+    """
     new_writes: List[bytes] = []
     new_inds: List[bytes] = []
     new_cfms: int = 0
     if self.h4_client is None:
       return new_writes, new_inds, new_cfms
 
-    for handle, cid, att_pdu in acls:
+    for pkt in acls:
+      handle, cid, att_pdu = pkt
       if cid != ATT_CID or not att_pdu:
         continue
       opcode = att_pdu[0]
@@ -741,9 +1011,16 @@ class VirtualBluezAdapterBridge:
           ATT_OP_WRITE_RSP,
       ):
         with self._att_cv:
-          self._pending_att_responses[handle] = att_pdu
-          self._att_cv.notify_all()
+          if self._acl_is_current(handle, pkt):
+            self._pending_att_responses[handle] = att_pdu
+            self._pending_att_response_gens[handle] = (
+                self._active_conn_generations.get(handle, 0)
+            )
+            self._att_cv.notify_all()
         continue
+
+      with self._att_cv:
+        current = self._acl_is_current(handle, pkt)
 
       # 2. Central receiving peripheral Indication
       if opcode == ATT_OP_HANDLE_VALUE_IND and len(att_pdu) >= 3:
@@ -751,9 +1028,10 @@ class VirtualBluezAdapterBridge:
         self.rx_indications.append(val)
         new_inds.append(val)
         self.att_indication_count += 1
-        self.h4_client.send_acl_l2cap(
-            handle, ATT_CID, struct.pack('<B', ATT_OP_HANDLE_VALUE_CFM)
-        )
+        if current:
+          self.h4_client.send_acl_l2cap(
+              handle, ATT_CID, struct.pack('<B', ATT_OP_HANDLE_VALUE_CFM)
+          )
         continue
 
       if opcode == ATT_OP_HANDLE_VALUE_NTF and len(att_pdu) >= 3:
@@ -764,8 +1042,9 @@ class VirtualBluezAdapterBridge:
 
       # 3. Peripheral receiving central Confirmation
       if opcode == ATT_OP_HANDLE_VALUE_CFM:
-        new_cfms += 1
-        self.att_confirmation_count += 1
+        if current:
+          new_cfms += 1
+          self.att_confirmation_count += 1
         continue
 
       # 4. Peripheral receiving ATT Requests from Central
@@ -783,6 +1062,33 @@ class VirtualBluezAdapterBridge:
           ATT_OP_EXECUTE_WRITE_REQ,
       ):
         if not self.is_att_responder_active():
+          continue
+        if not current:
+          if opcode in (
+              ATT_OP_EXCHANGE_MTU_REQ,
+              ATT_OP_PREPARE_WRITE_REQ,
+              ATT_OP_EXECUTE_WRITE_REQ,
+          ):
+            continue
+          if (
+              opcode in (ATT_OP_WRITE_REQ, ATT_OP_WRITE_CMD)
+              and len(att_pdu) >= 3
+          ):
+            attr_h = struct.unpack_from('<H', att_pdu, 1)[0]
+            attr = self.att_server.database.attributes.get(attr_h)
+            if attr is not None and attr.is_cccd:
+              continue
+          saved_mtu = self.att_server.effective_mtu
+          saved_cccd = dict(self.att_server.cccd_states)
+          # pylint: disable=protected-access
+          saved_prep = list(self.att_server._prepare_write_queue)
+          try:
+            self.att_server.handle_request(handle, att_pdu)
+          finally:
+            self.att_server.effective_mtu = saved_mtu
+            self.att_server.cccd_states = saved_cccd
+            # pylint: disable=protected-access
+            self.att_server._prepare_write_queue = saved_prep
           continue
         rsp = self.att_server.handle_request(handle, att_pdu)
         if rsp is not None:
@@ -834,58 +1140,70 @@ class VirtualBluezAdapterBridge:
   def _sync_from_h4_client(self) -> None:
     if self.h4_client is None:
       return
-    with self.h4_client._cv:
-      advs = list(self.h4_client._adv_reports)
-      conns = dict(self.h4_client._connections)
-      acls = list(self.h4_client._acl_packets)
-      self.h4_client._acl_packets.clear()
-
-    new_discoveries = []
-    with self._lock:
-      for rep in advs:
-        addr = str(rep['bd_addr'])
-        adv_data = bytes(rep['adv_data'])
-        svc_data = self.profile.parse_service_data(adv_data)
-        disc = (
-            self.profile.discriminator_from_service_data(svc_data)
-            if svc_data
-            else None
+    # Snapshots must be applied in the order taken; see _sync_lock.
+    with self._sync_lock:
+      with self.h4_client._cv:
+        advs = list(self.h4_client._adv_reports)
+        conns = dict(self.h4_client._connections)
+        snapshot_seq = getattr(
+            self.h4_client, '_conn_generation_seq', None
         )
-        if disc is None and addr in self.discovered_peripherals:
-          disc = self.discovered_peripherals[addr].get('discriminator')
-        if not svc_data and addr in self.discovered_peripherals:
-          svc_data = self.discovered_peripherals[addr].get('service_data')
-        is_new = addr not in self.discovered_peripherals
-        info = {
-            'bd_addr': addr,
-            'rssi': rep.get('rssi', -45),
-            'adv_data': adv_data,
-            'service_data': svc_data,
-            'discriminator': disc,
-        }
-        self.discovered_peripherals[addr] = info
-        if is_new:
-          new_discoveries.append((addr, info))
-      stale_handles = [
-          h for h in self.connected_handles if h not in conns
-      ]
-      for h in stale_handles:
-        self.connected_handles.pop(h, None)
-        self.discovered_gatt.pop(h, None)
-      if stale_handles and self.auto_readvertise_on_disconnect and self._custom_adv_params is not None:
-        self.start_custom_advertising(*self._custom_adv_params)
-      new_conns = []
-      for h, cinfo in conns.items():
-        p_addr = str(cinfo['peer_bd_addr'])
-        if h not in self.connected_handles:
-          new_conns.append((h, p_addr))
-        self.connected_handles[h] = p_addr
-      if stale_handles or new_conns:
-        self.att_server.reset_connection_state()
-        with self._att_cv:
-          for h in stale_handles + [h for h, _ in new_conns]:
-            self._att_timed_out_bearers.discard(h)
-      new_writes, new_inds, new_cfms = self._process_acl_att_packets(acls)
+        acls = list(self.h4_client._acl_packets)
+        self.h4_client._acl_packets.clear()
+
+      new_discoveries = []
+      with self._lock:
+        for rep in advs:
+          addr = str(rep['bd_addr'])
+          adv_data = bytes(rep['adv_data'])
+          svc_data = self.profile.parse_service_data(adv_data)
+          disc = (
+              self.profile.discriminator_from_service_data(svc_data)
+              if svc_data
+              else None
+          )
+          if disc is None and addr in self.discovered_peripherals:
+            disc = self.discovered_peripherals[addr].get('discriminator')
+          if not svc_data and addr in self.discovered_peripherals:
+            svc_data = self.discovered_peripherals[addr].get('service_data')
+          is_new = addr not in self.discovered_peripherals
+          info = {
+              'bd_addr': addr,
+              'rssi': rep.get('rssi', -45),
+              'adv_data': adv_data,
+              'service_data': svc_data,
+              'discriminator': disc,
+          }
+          self.discovered_peripherals[addr] = info
+          if is_new:
+            new_discoveries.append((addr, info))
+        stale_handles = [
+            h
+            for h in self.connected_handles
+            if h not in conns
+            and (
+                snapshot_seq is None
+                or (self._h4_conn_generations.get(h) or 0) <= snapshot_seq
+            )
+        ]
+        for h in stale_handles:
+          self.connected_handles.pop(h, None)
+          self.discovered_gatt.pop(h, None)
+        if (
+            stale_handles
+            and self.auto_readvertise_on_disconnect
+            and self._custom_adv_params is not None
+        ):
+          self.start_custom_advertising(*self._custom_adv_params)
+        new_conns = []
+        for h, cinfo in conns.items():
+          p_addr = str(cinfo['peer_bd_addr'])
+          h4_gen = cinfo.get('generation')
+          if self._set_connected_handle(h, p_addr, h4_gen=h4_gen):
+            new_conns.append((h, p_addr))
+        if stale_handles or new_conns:
+          self.att_server.reset_connection_state()
+        new_writes, new_inds, new_cfms = self._process_acl_att_packets(acls)
 
     self._dispatch_bridge_callbacks(
         new_discoveries, new_writes, new_inds, new_cfms, new_conns

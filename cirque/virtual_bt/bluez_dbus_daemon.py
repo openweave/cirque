@@ -357,8 +357,10 @@ class BluezDbusVirtualService(BluezGattPeripheralMixin):
       with self._lock:
         self._discovered_dev_paths.clear()
     elif method_name == 'RemoveDevice':
-      with self._lock:
-        self._discovered_dev_paths.discard(parameters.unpack()[0])
+      self._remove_adapter_device(
+          bridge, parameters.unpack()[0], invocation
+      )
+      return
     handle_bluez_adapter_method(bridge, method_name, parameters, invocation)
 
   def _handle_gatt_manager_method(
