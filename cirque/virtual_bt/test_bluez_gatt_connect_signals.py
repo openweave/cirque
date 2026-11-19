@@ -367,6 +367,162 @@ class TestBluezGattConnectSignals(unittest.TestCase):
     self._service_discover(service)
     self.assertEqual(self.host.interfaces_added_paths().count(CENTRAL_DEV), 2)
 
+  def test_stale_discovery_after_remove_device_does_not_poison_state(self):
+    service = self._make_service()
+    self._service_discover(service)
+    self._remove_device(service)
+    self.host.clear_signals()
+
+    # Stale callback arriving after RemoveDevice already cleared bridge state.
+    service._on_peripheral_discovered(CENTRAL_CID, PERIPH_ADDR, {})
+    self.assertNotIn(CENTRAL_DEV, service._discovered_dev_paths)
+    self.assertEqual(self.host.emitted_signals, [])
+
+    # Also guard if managed objects entry lacks org.bluez.Device1.
+    orig_build = service._build_managed_objects_dict
+    service._build_managed_objects_dict = lambda: {CENTRAL_DEV: {}}
+    try:
+      service._on_peripheral_discovered(CENTRAL_CID, PERIPH_ADDR, {})
+    finally:
+      service._build_managed_objects_dict = orig_build
+    self.assertNotIn(CENTRAL_DEV, service._discovered_dev_paths)
+    self.assertEqual(self.host.emitted_signals, [])
+
+    # Next genuine advertisement must still announce Device1.
+    self._service_discover(service)
+    self.assertEqual(
+        self.host.interfaces_added_paths(), [CENTRAL_DEV] + GATT_CHILDREN
+    )
+
+  def test_concurrent_discovery_and_remove_device_are_serialized(self):
+    service = self._make_service()
+    self.central.discovered_peripherals[PERIPH_ADDR] = {
+        'bd_addr': PERIPH_ADDR,
+        'rssi': -40,
+        'discriminator': 3840,
+    }
+    in_snapshot = threading.Event()
+    remover_started = threading.Event()
+    orig_build = service._build_managed_objects_dict
+
+    def slow_first_build():
+      objs = orig_build()
+      if threading.current_thread().name == 'DiscoverThread':
+        in_snapshot.set()
+        remover_started.wait(1.0)
+        threading.Event().wait(0.05)
+      return objs
+
+    service._build_managed_objects_dict = slow_first_build
+    events = []
+    orig_emit = service._emit_all
+
+    def tracked_emit(path, iface, sig, params):
+      if sig in ('InterfacesAdded', 'InterfacesRemoved'):
+        events.append((sig, params.unpack()[0]))
+      orig_emit(path, iface, sig, params)
+
+    service._emit_all = tracked_emit
+
+    t_disc = threading.Thread(
+        target=service._on_peripheral_discovered,
+        args=(CENTRAL_CID, PERIPH_ADDR, {}),
+        name='DiscoverThread',
+        daemon=True,
+    )
+    t_disc.start()
+    self.assertTrue(in_snapshot.wait(2.0))
+
+    def run_remove():
+      remover_started.set()
+      self._remove_device(service, events=events)
+
+    t_rem = threading.Thread(target=run_remove, daemon=True)
+    t_rem.start()
+    t_disc.join(timeout=3.0)
+    t_rem.join(timeout=3.0)
+    self.assertFalse(t_disc.is_alive())
+    self.assertFalse(t_rem.is_alive())
+
+    service._build_managed_objects_dict = orig_build
+    self.assertNotIn(CENTRAL_DEV, service._build_managed_objects_dict())
+    self.assertNotIn(CENTRAL_DEV, service._discovered_dev_paths)
+    # Every InterfacesAdded must precede InterfacesRemoved and the reply.
+    reply_idx = events.index(('reply', None))
+    added_indices = [
+        i for i, ev in enumerate(events) if ev[0] == 'InterfacesAdded'
+    ]
+    removed_indices = [
+        i for i, ev in enumerate(events) if ev[0] == 'InterfacesRemoved'
+    ]
+    self.assertTrue(added_indices)
+    self.assertTrue(removed_indices)
+    self.assertLess(max(added_indices), min(removed_indices))
+    self.assertLess(max(removed_indices), reply_idx)
+
+    # Rediscovery after serialized removal announces Device1 again.
+    self.host.clear_signals()
+    self._service_discover(service)
+    self.assertIn(CENTRAL_DEV, self.host.interfaces_added_paths())
+
+  def test_start_discovery_retains_connected_peer_and_other_adapters(self):
+    service = self._make_service()
+    service.docker_manager.adapter_bridges[PERIPH_CID] = self.periph
+    scan_calls = []
+    self.central.h4_client.start_scanning = (
+        lambda active=True: scan_calls.append(active)
+    )
+    self.central.h4_client._adv_reports.append({'bd_addr': PERIPH_ADDR})
+
+    # Connected peer + unconnected peer on hci0, plus discovered peer on hci1.
+    self._service_discover(service)
+    self.central.connected_handles[0x0040] = PERIPH_ADDR
+    other_addr = '02:00:00:00:03:03'
+    other_dev = f'/org/bluez/{CENTRAL_CID}/dev_02_00_00_00_03_03'
+    self.central.discovered_peripherals[other_addr] = {
+        'bd_addr': other_addr,
+        'rssi': -70,
+        'discriminator': 1111,
+    }
+    service._on_peripheral_discovered(CENTRAL_CID, other_addr, {})
+
+    hci1_addr = '02:00:00:00:04:04'
+    hci1_dev = f'/org/bluez/{PERIPH_CID}/dev_02_00_00_00_04_04'
+    self.periph.discovered_peripherals[hci1_addr] = {
+        'bd_addr': hci1_addr,
+        'rssi': -55,
+        'discriminator': 2222,
+    }
+    service._on_peripheral_discovered(PERIPH_CID, hci1_addr, {})
+
+    inv = RecordingInvocation()
+    service._handle_adapter_method(self.central, 'StartDiscovery', None, inv)
+    self.assertEqual(inv.returned, [None])
+    self.assertEqual(scan_calls, [True])
+    self.assertEqual(self.central.h4_client._adv_reports, [])
+
+    # Connected peer stays in discovered_peripherals and _discovered_dev_paths;
+    # unconnected hci0 peer is cleared; hci1 peer is untouched.
+    self.assertIn(PERIPH_ADDR, self.central.discovered_peripherals)
+    self.assertNotIn(other_addr, self.central.discovered_peripherals)
+    self.assertIn(CENTRAL_DEV, service._discovered_dev_paths)
+    self.assertNotIn(other_dev, service._discovered_dev_paths)
+    self.assertIn(hci1_dev, service._discovered_dev_paths)
+    objs = service._build_managed_objects_dict()
+    self.assertEqual(
+        objs[CENTRAL_DEV]['org.bluez.Device1']['RSSI'].unpack(), -40
+    )
+
+    # Disconnect keeps Device1 in GetManagedObjects so RemoveDevice cleans up.
+    service._disconnect_device(self.central, CENTRAL_DEV, None)
+    self.assertIn(CENTRAL_DEV, service._build_managed_objects_dict())
+    self.host.clear_signals()
+    self._remove_device(service)
+    self.assertEqual(
+        self._interfaces_removed_paths(),
+        list(reversed(GATT_CHILDREN)) + [CENTRAL_DEV],
+    )
+
 
 if __name__ == '__main__':
   unittest.main()
