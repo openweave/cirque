@@ -397,10 +397,20 @@ class H4TcpClient:
     raise TimeoutError('Timed out waiting for LE Connection Complete')
 
   def send_acl_l2cap(
-      self, handle: int, l2cap_cid: int, l2cap_payload: bytes
-  ) -> None:
-    pkt = build_acl_packet(handle, l2cap_cid, l2cap_payload)
-    self.sock.sendall(pkt.to_bytes())
+      self,
+      handle: int,
+      l2cap_cid: int,
+      l2cap_payload: bytes,
+      expected_generation: Optional[int] = None,
+  ) -> bool:
+    raw = build_acl_packet(handle, l2cap_cid, l2cap_payload).to_bytes()
+    with self._cv:
+      if expected_generation is not None:
+        cinfo = self._connections.get(handle)
+        if cinfo is None or cinfo.get('generation') != expected_generation:
+          return False
+      self.sock.sendall(raw)
+      return True
 
   def receive_acl_l2cap(self, timeout: float = 3.0) -> Tuple[int, int, bytes]:
     deadline = time.time() + timeout

@@ -786,6 +786,245 @@ class SendAttRequestSerializationTest(unittest.TestCase):
     with self.assertRaises(socket.timeout):
       peer_sock.recv(1024)
 
+  def test_h4_send_acl_l2cap_expected_generation_guards_sendall(self):
+    _, h4, peer_sock = self._make_socket_bridge()
+    with h4._cv:
+      gen1 = h4._connections[_CONN_HANDLE]['generation']
+    peer_sock.settimeout(1.0)
+
+    # Default expected_generation=None and matching gen1 both transmit.
+    self.assertTrue(h4.send_acl_l2cap(_CONN_HANDLE, ATT_CID, b'\x01'))
+    self.assertGreater(len(peer_sock.recv(256)), 0)
+    self.assertTrue(
+        h4.send_acl_l2cap(
+            _CONN_HANDLE, ATT_CID, b'\x02', expected_generation=gen1
+        )
+    )
+    self.assertGreater(len(peer_sock.recv(256)), 0)
+
+    # Mismatched generation returns False without writing to the socket.
+    self.assertFalse(
+        h4.send_acl_l2cap(
+            _CONN_HANDLE, ATT_CID, b'\x03', expected_generation=gen1 + 99
+        )
+    )
+    peer_sock.settimeout(0.15)
+    with self.assertRaises(socket.timeout):
+      peer_sock.recv(256)
+
+    # Fast H4 reconnect to Gen 2 rejects stale Gen 1 and accepts Gen 2.
+    disc = build_disconnection_complete_event(
+        _CONN_HANDLE, 0x13, 0x00
+    ).to_bytes()
+    conn2 = build_le_connection_complete_event(
+        0x00, _CONN_HANDLE, 0, 0, _PEER_ADDR
+    ).to_bytes()
+    peer_sock.sendall(disc + conn2)
+    self._wait_h4(
+        h4,
+        lambda: h4._connections.get(_CONN_HANDLE, {}).get('generation')
+        not in (None, gen1),
+    )
+    with h4._cv:
+      gen2 = h4._connections[_CONN_HANDLE]['generation']
+    self.assertFalse(
+        h4.send_acl_l2cap(
+            _CONN_HANDLE, ATT_CID, b'\x04', expected_generation=gen1
+        )
+    )
+    with self.assertRaises(socket.timeout):
+      peer_sock.recv(256)
+    peer_sock.settimeout(1.0)
+    self.assertTrue(
+        h4.send_acl_l2cap(
+            _CONN_HANDLE, ATT_CID, b'\x05', expected_generation=gen2
+        )
+    )
+    self.assertGreater(len(peer_sock.recv(256)), 0)
+
+  def test_send_att_request_aborts_when_h4_advances_after_state_check(self):
+    bridge, h4, peer_sock = self._make_socket_bridge()
+    with h4._cv:
+      gen1 = h4._connections[_CONN_HANDLE]['generation']
+    orig_conn_state = bridge._h4_conn_state
+    calls = {'n': 0}
+
+    def reconnect_after_bearer_check(handle):
+      res = orig_conn_state(handle)
+      calls['n'] += 1
+      if calls['n'] == 2:
+        # Advance H4 from Gen 1 to Gen 2 in the TOCTOU window right after
+        # _h4_conn_state returned (True, gen1) under bearer_lock.
+        disc = build_disconnection_complete_event(
+            _CONN_HANDLE, 0x13, 0x00
+        ).to_bytes()
+        conn2 = build_le_connection_complete_event(
+            0x00, _CONN_HANDLE, 0, 0, _PEER_ADDR
+        ).to_bytes()
+        peer_sock.sendall(disc + conn2)
+        self._wait_h4(
+            h4,
+            lambda: h4._connections.get(_CONN_HANDLE, {}).get('generation')
+            not in (None, gen1),
+        )
+      return res
+
+    bridge._h4_conn_state = reconnect_after_bearer_check
+    read_req = struct.pack('<BH', ATT_OP_READ_REQ, 0x0003)
+    with self.assertRaises(ConnectionError):
+      bridge.send_att_request(_CONN_HANDLE, read_req, timeout=0.5)
+    self.assertEqual(bridge._att_timed_out_bearers, set())
+    peer_sock.settimeout(0.15)
+    with self.assertRaises(socket.timeout):
+      peer_sock.recv(256)
+
+  def test_process_acl_drops_cfm_and_rsp_when_h4_advances_mid_dispatch(self):
+    bridge, h4, peer_sock = self._make_socket_bridge()
+    with h4._cv:
+      gen1 = h4._connections[_CONN_HANDLE]['generation']
+
+    def advance_h4_to_next_gen():
+      with h4._cv:
+        cur_gen = h4._connections.get(_CONN_HANDLE, {}).get('generation')
+      disc = build_disconnection_complete_event(
+          _CONN_HANDLE, 0x13, 0x00
+      ).to_bytes()
+      conn_next = build_le_connection_complete_event(
+          0x00, _CONN_HANDLE, 0, 0, _PEER_ADDR
+      ).to_bytes()
+      peer_sock.sendall(disc + conn_next)
+      self._wait_h4(
+          h4,
+          lambda: h4._connections.get(_CONN_HANDLE, {}).get('generation')
+          not in (None, cur_gen),
+      )
+
+    # 1. Peripheral ATT Read Request: H4 reconnects inside on_read callback,
+    #    after _acl_is_current already evaluated True for Gen 1.
+    svc_h = bridge.register_external_service(0xFFF6)
+    _, read_val_h = bridge.register_external_characteristic(
+        svc_h,
+        0x2A00,
+        properties=['read'],
+        on_read=lambda: (advance_h4_to_next_gen(), b'gen1-secret')[1],
+    )
+    read_pdu = struct.pack('<BH', ATT_OP_READ_REQ, read_val_h)
+    req_pkt = AclPacket((_CONN_HANDLE, ATT_CID, read_pdu), gen1)
+    bridge._process_acl_att_packets([req_pkt])
+    peer_sock.settimeout(0.15)
+    with self.assertRaises(socket.timeout):
+      peer_sock.recv(256)
+
+    # 2. Central receiving Indication: H4 reconnects right after
+    #    _acl_is_current returns True, before HANDLE_VALUE_CFM is sent.
+    bridge._sync_from_h4_client()
+    with h4._cv:
+      gen2 = h4._connections[_CONN_HANDLE]['generation']
+    orig_is_current = bridge._acl_is_current
+
+    def is_current_then_reconnect(handle, pkt):
+      ok = orig_is_current(handle, pkt)
+      if ok:
+        advance_h4_to_next_gen()
+      return ok
+
+    bridge._acl_is_current = is_current_then_reconnect
+    ind_pkt = AclPacket(
+        (
+            _CONN_HANDLE,
+            ATT_CID,
+            struct.pack('<BH', ATT_OP_HANDLE_VALUE_IND, 0x0005) + b'ind-gen2',
+        ),
+        gen2,
+    )
+    _, new_inds, _ = bridge._process_acl_att_packets([ind_pkt])
+    self.assertEqual(new_inds, [b'ind-gen2'])
+    with self.assertRaises(socket.timeout):
+      peer_sock.recv(256)
+
+  def test_notify_and_send_indication_bind_generation_and_3arg_compat(self):
+    bridge, h4, peer_sock = self._make_socket_bridge()
+    with h4._cv:
+      gen1 = h4._connections[_CONN_HANDLE]['generation']
+    svc_h = bridge.register_external_service(bridge.profile.service_uuid)
+    _, ntf_val_h = bridge.register_external_characteristic(
+        svc_h,
+        bridge.profile.write_char_uuid,
+        properties=['write', 'notify'],
+    )
+    bridge.register_external_characteristic(
+        svc_h,
+        bridge.profile.indicate_char_uuid,
+        properties=['indicate'],
+    )
+
+    # Advance H4 to Gen 2 before bridge syncs: bridge still tracks Gen 1, so
+    # Gen 1 notifications and indications must not leak onto Gen 2.
+    disc = build_disconnection_complete_event(
+        _CONN_HANDLE, 0x13, 0x00
+    ).to_bytes()
+    conn2 = build_le_connection_complete_event(
+        0x00, _CONN_HANDLE, 0, 0, _PEER_ADDR
+    ).to_bytes()
+    peer_sock.sendall(disc + conn2)
+    self._wait_h4(
+        h4,
+        lambda: h4._connections.get(_CONN_HANDLE, {}).get('generation')
+        not in (None, gen1),
+    )
+    self.assertEqual(bridge.notify_characteristic(ntf_val_h, b'stale-ntf'), 0)
+    bridge.send_indication(_CONN_HANDLE, b'stale-ind')
+    self.assertEqual(bridge.att_indication_count, 0)
+    peer_sock.settimeout(0.15)
+    with self.assertRaises(socket.timeout):
+      peer_sock.recv(256)
+
+    # Once bridge syncs Gen 2, both transmit cleanly.
+    bridge._sync_from_h4_client()
+    peer_sock.settimeout(1.0)
+    self.assertEqual(bridge.notify_characteristic(ntf_val_h, b'fresh-ntf'), 1)
+    self.assertGreater(len(peer_sock.recv(256)), 0)
+    bridge.send_indication(_CONN_HANDLE, b'fresh-ind')
+    self.assertEqual(bridge.att_indication_count, 1)
+    self.assertGreater(len(peer_sock.recv(256)), 0)
+
+    # Un-tagged 3-arg test double remains compatible across outbound paths.
+    stub_sent = []
+
+    class Untagged3ArgStub:
+
+      def __init__(self):
+        self._cv = threading.Condition()
+        self._connections = {_CONN_HANDLE: {'peer_bd_addr': _PEER_ADDR}}
+        self._adv_reports = []
+        self._acl_packets = []
+
+      def send_acl_l2cap(self, handle, cid, pdu):
+        stub_sent.append((handle, cid, bytes(pdu)))
+
+    stub_bridge = VirtualBluezAdapterBridge(
+        'ctrl1', '02:00:00:00:00:09', '127.0.0.1', 0
+    )
+    stub_bridge.h4_client = Untagged3ArgStub()
+    stub_bridge.connected_handles[_CONN_HANDLE] = _PEER_ADDR
+    s_h = stub_bridge.register_external_service(
+        stub_bridge.profile.service_uuid
+    )
+    _, s_ntf_h = stub_bridge.register_external_characteristic(
+        s_h, stub_bridge.profile.write_char_uuid, properties=['notify']
+    )
+    stub_bridge.register_external_characteristic(
+        s_h, stub_bridge.profile.indicate_char_uuid, properties=['indicate']
+    )
+    self.assertEqual(stub_bridge.notify_characteristic(s_ntf_h, b'ok'), 1)
+    stub_bridge.send_indication(_CONN_HANDLE, b'ind-ok')
+    stub_bridge._process_acl_att_packets([(
+        _CONN_HANDLE,
+        ATT_CID,
+        struct.pack('<BH', ATT_OP_HANDLE_VALUE_IND, 0x0005) + b'x',
+    )])
+    self.assertEqual(len(stub_sent), 3)
+
 
 if __name__ == '__main__':
   unittest.main()

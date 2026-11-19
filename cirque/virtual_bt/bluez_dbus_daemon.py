@@ -27,6 +27,7 @@ from typing import Dict, Optional, Tuple
 from cirque.virtual_bt.bluez_gatt_helpers import (
     BLUEZ_INTROSPECT_XML,
     build_dbus_bus_conf_xml,
+    clear_bridge_unconnected_discoveries,
     handle_bluez_adapter_method,
     query_advertisement_discriminator,
     query_app_managed_objects,
@@ -355,8 +356,24 @@ class BluezDbusVirtualService(BluezGattPeripheralMixin):
     """Handles org.bluez.Adapter1 D-Bus method calls."""
     if method_name == 'StartDiscovery':
       with self._lock:
-        self._discovered_dev_paths.clear()
-    elif method_name == 'RemoveDevice':
+        conn_addrs = clear_bridge_unconnected_discoveries(bridge)
+        if bridge is None:
+          self._discovered_dev_paths.clear()
+        else:
+          prefix = f'/org/bluez/{bridge.controller_id}/dev_'
+          self._discovered_dev_paths = {
+              p
+              for p in self._discovered_dev_paths
+              if not p.startswith(prefix) or (
+                  p[len(prefix):].replace('_', ':').upper() in conn_addrs
+              )
+          }
+      if bridge is not None and bridge.h4_client is not None:
+        bridge.h4_client.start_scanning(active=True)
+      if invocation is not None:
+        invocation.return_value(None)
+      return
+    if method_name == 'RemoveDevice':
       self._remove_adapter_device(
           bridge, parameters.unpack()[0], invocation
       )

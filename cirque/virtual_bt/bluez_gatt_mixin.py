@@ -174,23 +174,26 @@ class BluezGattPeripheralMixin:
       self, controller_id: str, addr: str, _info: Dict[str, object]
   ) -> None:
     """Emits InterfacesAdded and RSSI changes when a device is discovered."""
-    dev_path = self._export_device_gatt_tree(controller_id, addr)
     if not self._running:
       return
-    is_first_discovery = False
     with self._lock:
-      discovered = getattr(self, '_discovered_dev_paths', None)
-      if discovered is not None and dev_path not in discovered:
-        discovered.add(dev_path)
-        is_first_discovery = True
+      if not self._running:
+        return
+      try:
+        from gi.repository import GLib  # pylint: disable=g-import-not-at-top
 
-    try:
-      from gi.repository import GLib  # pylint: disable=g-import-not-at-top
-
-      objs = self._build_managed_objects_dict()
-      if is_first_discovery:
-        self._emit_gatt_tree_added(dev_path, objs)
-      if dev_path in objs and 'org.bluez.Device1' in objs[dev_path]:
+        objs = self._build_managed_objects_dict()
+        dev_path = f'/org/bluez/{controller_id}/dev_{addr.replace(":", "_")}'
+        if dev_path not in objs or 'org.bluez.Device1' not in objs[dev_path]:
+          return
+        dev_path = self._export_device_gatt_tree(controller_id, addr)
+        is_first_discovery = False
+        discovered = getattr(self, '_discovered_dev_paths', None)
+        if discovered is not None and dev_path not in discovered:
+          discovered.add(dev_path)
+          is_first_discovery = True
+        if is_first_discovery:
+          self._emit_gatt_tree_added(dev_path, objs)
         dev_props = objs[dev_path]['org.bluez.Device1']
         changed = {
             'RSSI': dev_props['RSSI'],
@@ -202,8 +205,8 @@ class BluezGattPeripheralMixin:
             'PropertiesChanged',
             GLib.Variant('(sa{sv}as)', ('org.bluez.Device1', changed, [])),
         )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-      logger.debug('InterfacesAdded emit failed: %s', exc)
+      except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug('InterfacesAdded emit failed: %s', exc)
 
   @staticmethod
   def _enable_peripheral_c2_cccd(p_bridge) -> None:

@@ -20,7 +20,7 @@ helpers for userspace BlueZ emulation.
 import logging
 import os
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 from cirque.virtual_bt.adapter_bridge import VirtualBluezAdapterBridge
 from cirque.virtual_bt.gatt_profile import BleGattProfile, get_default_profile
@@ -446,6 +446,30 @@ def remove_bridge_device(
   return is_connected
 
 
+def clear_bridge_unconnected_discoveries(
+    bridge: Optional[VirtualBluezAdapterBridge],
+) -> Set[str]:
+  """Drops unconnected peers and H4 adv cache; returns connected BD_ADDRs."""
+  if bridge is None:
+    return set()
+  # pylint: disable=protected-access
+  with bridge._sync_lock:
+    with bridge._lock:
+      conn_addrs = {
+          str(a).upper() for a in bridge.connected_handles.values()
+      }
+      for addr in [
+          k
+          for k in bridge.discovered_peripherals
+          if str(k).upper() not in conn_addrs
+      ]:
+        bridge.discovered_peripherals.pop(addr, None)
+      if bridge.h4_client is not None:
+        with bridge.h4_client._cv:
+          bridge.h4_client._adv_reports.clear()
+  return conn_addrs
+
+
 def handle_bluez_adapter_method(
     bridge: Optional[VirtualBluezAdapterBridge],
     method_name: str,
@@ -454,12 +478,10 @@ def handle_bluez_adapter_method(
 ) -> None:
   """Handles org.bluez.Adapter1 D-Bus method calls."""
   if bridge is not None:
-    if method_name == 'StartDiscovery' and bridge.h4_client is not None:
-      with bridge._lock:  # pylint: disable=protected-access
-        bridge.discovered_peripherals.clear()
-      with bridge.h4_client._cv:  # pylint: disable=protected-access
-        bridge.h4_client._adv_reports.clear()  # pylint: disable=protected-access
-      bridge.h4_client.start_scanning(active=True)
+    if method_name == 'StartDiscovery':
+      clear_bridge_unconnected_discoveries(bridge)
+      if bridge.h4_client is not None:
+        bridge.h4_client.start_scanning(active=True)
     elif method_name == 'StopDiscovery' and bridge.h4_client is not None:
       bridge.h4_client.send_command(0x200C, b'\x00\x00')
     elif method_name == 'RemoveDevice':

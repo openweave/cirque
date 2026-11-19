@@ -21,6 +21,7 @@ looks for and advertises is described by a BleGattProfile
 """
 
 from dataclasses import dataclass, field
+import inspect
 import logging
 import struct
 import threading
@@ -100,6 +101,42 @@ def _att_aborted(
       f'ATT request 0x{req_opcode:02X} on handle 0x{conn_handle:04X}'
       f' aborted: {why}'
   )
+
+
+def _call_send_acl_with_generation(
+    send_fn: Callable[..., object],
+    handle: int,
+    l2cap_cid: int,
+    payload: bytes,
+    expected_generation: int,
+) -> Optional[bool]:
+  """Calls send_fn with expected_generation, or None for 3-arg stubs."""
+  params = list(inspect.signature(send_fn).parameters.values())
+  if any(p.name == 'expected_generation' for p in params) or any(
+      p.kind == inspect.Parameter.VAR_KEYWORD for p in params
+  ):
+    res = send_fn(
+        handle,
+        l2cap_cid,
+        payload,
+        expected_generation=expected_generation,
+    )
+    return res is not False
+  pos_count = sum(
+      1
+      for p in params
+      if p.kind
+      in (
+          inspect.Parameter.POSITIONAL_ONLY,
+          inspect.Parameter.POSITIONAL_OR_KEYWORD,
+      )
+  )
+  if pos_count >= 4 or any(
+      p.kind == inspect.Parameter.VAR_POSITIONAL for p in params
+  ):
+    res = send_fn(handle, l2cap_cid, payload, expected_generation)
+    return res is not False
+  return None
 
 
 class _ConnectedHandlesDict(dict):
@@ -329,6 +366,58 @@ class VirtualBluezAdapterBridge:
         return False, None
       gen = cinfo.get('generation')
       return True, int(gen) if gen is not None else None
+
+  def _resolve_acl_send_target(
+      self, handle: int
+  ) -> Tuple[bool, Optional[int]]:
+    """Returns (can_send, expected_h4_gen) for outbound notification/ind.
+
+    Caller holds self._lock.
+    """
+    in_bridge = dict.__contains__(self.connected_handles, handle)
+    with self._att_cv:
+      tracked_h4_gen = self._h4_conn_generations.get(handle)
+      retired_h4_gen = self._retired_h4_conn_generations.get(handle, 0)
+    if in_bridge and tracked_h4_gen is not None:
+      return True, tracked_h4_gen
+    h4_present, live_h4_gen = self._h4_conn_state(handle)
+    if h4_present is False:
+      return False, None
+    if in_bridge:
+      if live_h4_gen is not None and retired_h4_gen > 0:
+        return False, None
+      return True, live_h4_gen
+    if retired_h4_gen > 0:
+      return False, None
+    if h4_present is True:
+      return True, live_h4_gen
+    return h4_present is None, None
+
+  def _send_acl_l2cap(
+      self,
+      handle: int,
+      l2cap_cid: int,
+      payload: bytes,
+      expected_generation: Optional[int] = None,
+  ) -> bool:
+    """Sends an ACL L2CAP PDU, checking expected_generation if supported."""
+    h4 = self.h4_client
+    if h4 is None:
+      return False
+    send_fn = h4.send_acl_l2cap
+    if expected_generation is None:
+      return send_fn(handle, l2cap_cid, payload) is not False
+    sent = _call_send_acl_with_generation(
+        send_fn, handle, l2cap_cid, payload, expected_generation
+    )
+    if sent is not None:
+      return sent
+    h4_present, h4_gen = self._h4_conn_state(handle)
+    if h4_present is False or (
+        h4_present is True and h4_gen != expected_generation
+    ):
+      return False
+    return send_fn(handle, l2cap_cid, payload) is not False
 
   def _cleanup_removed_handles(self, handles: List[int]) -> None:
     """Clears generation, ATT bearer and GATT state for removed handles.
@@ -580,16 +669,25 @@ class VirtualBluezAdapterBridge:
       attr = self.att_server.database.attributes.get(val_h)
       if attr is not None:
         attr.value = bytes(payload)
-      handles = (
+      candidate_handles = (
           [conn_handle]
           if conn_handle is not None
           else list(self.connected_handles.keys())
       )
-    att_pdu = struct.pack('<BH', ATT_OP_HANDLE_VALUE_NTF, val_h) + bytes(payload)
+      targets: List[Tuple[int, Optional[int]]] = []
+      for h in candidate_handles:
+        can_send, expected_gen = self._resolve_acl_send_target(h)
+        if can_send:
+          targets.append((h, expected_gen))
+    att_pdu = (
+        struct.pack('<BH', ATT_OP_HANDLE_VALUE_NTF, val_h) + bytes(payload)
+    )
     sent = 0
-    for h in handles:
-      self.h4_client.send_acl_l2cap(h, ATT_CID, att_pdu)
-      sent += 1
+    for h, expected_gen in targets:
+      if self._send_acl_l2cap(
+          h, ATT_CID, att_pdu, expected_generation=expected_gen
+      ):
+        sent += 1
     return sent
 
   def start_custom_advertising(
@@ -703,7 +801,13 @@ class VirtualBluezAdapterBridge:
           )
         self._pending_att_responses.pop(conn_handle, None)
         self._pending_att_response_gens.pop(conn_handle, None)
-        self.h4_client.send_acl_l2cap(conn_handle, ATT_CID, req_pdu)
+        if not self._send_acl_l2cap(
+            conn_handle,
+            ATT_CID,
+            req_pdu,
+            expected_generation=initial_h4_gen,
+        ):
+          raise _att_aborted(req_opcode, conn_handle, 'disconnected')
 
       # Lock order: bearer_lock < _sync_lock < self._lock < self._att_cv (the
       # poll thread holds self._lock when acquiring self._att_cv in
@@ -939,27 +1043,38 @@ class VirtualBluezAdapterBridge:
     """Sends an ATT Indication on the profile's indicate characteristic."""
     if self.h4_client is None:
       return
-    ind_info = self.att_server.database.find_characteristic_by_uuid(
-        self.profile.indicate_char_uuid
-    )
-    if ind_info is None:
-      raise RuntimeError(
-          'Indicate characteristic not present in peripheral ATT database'
+    with self._lock:
+      ind_info = self.att_server.database.find_characteristic_by_uuid(
+          self.profile.indicate_char_uuid
       )
-    ind_val_h = ind_info[1]
-    cccd_h = self.att_server.database.find_cccd_for_char(ind_val_h)
-    if cccd_h is not None and not self.att_server.is_indication_enabled(cccd_h):
-      self.att_server.cccd_states[cccd_h] = 0x0002
-    if cccd_h is None or not self.att_server.is_indication_enabled(cccd_h):
-      logger.warning(
-          'Cannot send indication on handle 0x%04X: CCCD 0x%04X not enabled',
-          ind_val_h,
-          cccd_h or 0,
+      if ind_info is None:
+        raise RuntimeError(
+            'Indicate characteristic not present in peripheral ATT database'
+        )
+      can_send, expected_gen = self._resolve_acl_send_target(handle)
+      if not can_send:
+        return
+      ind_val_h = ind_info[1]
+      cccd_h = self.att_server.database.find_cccd_for_char(ind_val_h)
+      if cccd_h is not None and not self.att_server.is_indication_enabled(
+          cccd_h
+      ):
+        self.att_server.cccd_states[cccd_h] = 0x0002
+      if cccd_h is None or not self.att_server.is_indication_enabled(cccd_h):
+        logger.warning(
+            'Cannot send indication on handle 0x%04X: CCCD 0x%04X not enabled',
+            ind_val_h,
+            cccd_h or 0,
+        )
+        return
+      att_pdu = (
+          struct.pack('<BH', ATT_OP_HANDLE_VALUE_IND, ind_val_h) + payload
       )
-      return
-    self.att_indication_count += 1
-    att_pdu = struct.pack('<BH', ATT_OP_HANDLE_VALUE_IND, ind_val_h) + payload
-    self.h4_client.send_acl_l2cap(handle, ATT_CID, att_pdu)
+    if self._send_acl_l2cap(
+        handle, ATT_CID, att_pdu, expected_generation=expected_gen
+    ):
+      with self._lock:
+        self.att_indication_count += 1
 
   def _acl_is_current(self, handle: int, pkt: Tuple[int, int, bytes]) -> bool:
     """Returns whether pkt arrived on handle's current connection.
@@ -1021,6 +1136,11 @@ class VirtualBluezAdapterBridge:
 
       with self._att_cv:
         current = self._acl_is_current(handle, pkt)
+        expected_gen = (
+            pkt.generation
+            if hasattr(pkt, 'generation')
+            else self._h4_conn_generations.get(handle)
+        )
 
       # 2. Central receiving peripheral Indication
       if opcode == ATT_OP_HANDLE_VALUE_IND and len(att_pdu) >= 3:
@@ -1029,8 +1149,11 @@ class VirtualBluezAdapterBridge:
         new_inds.append(val)
         self.att_indication_count += 1
         if current:
-          self.h4_client.send_acl_l2cap(
-              handle, ATT_CID, struct.pack('<B', ATT_OP_HANDLE_VALUE_CFM)
+          self._send_acl_l2cap(
+              handle,
+              ATT_CID,
+              struct.pack('<B', ATT_OP_HANDLE_VALUE_CFM),
+              expected_generation=expected_gen,
           )
         continue
 
@@ -1092,7 +1215,9 @@ class VirtualBluezAdapterBridge:
           continue
         rsp = self.att_server.handle_request(handle, att_pdu)
         if rsp is not None:
-          self.h4_client.send_acl_l2cap(handle, ATT_CID, rsp)
+          self._send_acl_l2cap(
+              handle, ATT_CID, rsp, expected_generation=expected_gen
+          )
         continue
 
     return new_writes, new_inds, new_cfms
