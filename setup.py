@@ -16,7 +16,6 @@ import os
 import setuptools
 from setuptools.command.install import install
 import glob
-import pkg_resources
 
 ENABLE_GRPC = not os.environ.get('NO_GRPC', False)
 PACKAGE_PATH = os.path.realpath(os.path.dirname(__file__))
@@ -44,7 +43,7 @@ def version():
 def compile_protos():
   from grpc_tools import protoc
 
-  proto_include = pkg_resources.resource_filename('grpc_tools', '_proto')
+  proto_include = os.path.join(os.path.dirname(protoc.__file__), '_proto')
 
   for proto in glob.glob(os.path.join(SRC_PROTOS, '*.proto')):
     command = [
